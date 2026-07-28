@@ -59,6 +59,7 @@ function buildTabs() {
   const tabs = [{ id: "Assist", label: "עוזר תשובות" }];
   if (me.role === "מנהל") {
     tabs.push({ id: "Approve", label: "אישורים" });
+    tabs.push({ id: "Add", label: "הוספת תשובה" });
     tabs.push({ id: "Users", label: "משתמשים" });
   }
   $("tabs").innerHTML = tabs.map((t, i) =>
@@ -66,7 +67,7 @@ function buildTabs() {
   $("tabs").onclick = e => {
     const b = e.target.closest("button"); if (!b) return;
     [...$("tabs").children].forEach(x => x.classList.toggle("on", x === b));
-    ["Assist", "Approve", "Users"].forEach(id => $("tab" + id).style.display = (id === b.dataset.t ? "block" : "none"));
+    ["Assist", "Approve", "Add", "Users"].forEach(id => $("tab" + id).style.display = (id === b.dataset.t ? "block" : "none"));
     if (b.dataset.t === "Approve") loadQueue();
     if (b.dataset.t === "Users") loadUsers();
   };
@@ -224,6 +225,33 @@ $("uAdd").onclick = async () => {
   toast("נוסף. קוד: " + r.code);
   $("uName").value = $("uEmail").value = $("uCode").value = "";
   loadUsers();
+};
+
+// ---------- הוספת תשובה ידנית (מנהל) ----------
+["aCt", "aKind"].forEach(id => {
+  const el = $(id); if (!el) return;
+  el.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (id === "aKind") [...el.children].forEach(x => x.classList.toggle("on", x === b));
+    else b.classList.toggle("on");
+  });
+});
+if ($("aSave")) $("aSave").onclick = async () => {
+  const q = $("aQ").value.trim(), body = $("aBody").value.trim();
+  if (!q || !body) return toast("נא למלא שאלה ותשובה");
+  const r = await api("/api/submit", {
+    kind: "direct", question: q, draft: body,
+    altPhrasings: $("aAlt").value.split(",").map(x => x.trim()).filter(Boolean),
+    fields: {
+      category: $("aCat").value.trim(),
+      customerTypes: [...$("aCt").querySelectorAll(".on")].map(x => x.dataset.v),
+      kind: $("aKind").querySelector(".on")?.dataset.v || "מענה",
+      health: false,
+    },
+  });
+  if (r.error) return toast("שגיאה: " + r.error);
+  toast("נוסף למאגר · " + r.id);
+  $("aQ").value = $("aAlt").value = $("aBody").value = $("aCat").value = "";
 };
 
 // ---------- כלים והתראות ----------

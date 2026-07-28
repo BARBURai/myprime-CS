@@ -63,6 +63,33 @@
   <!-- לשונית אישורים -->
   <div id="tabApprove" style="display:none"><div id="queue"></div></div>
 
+  <!-- לשונית הוספת תשובה (מנהל) -->
+  <div id="tabAdd" style="display:none">
+    <div class="panel">
+      <div class="lbl">הוספת תשובה למאגר · נכנסת מיד כמאושרת</div>
+      <label class="lbl" style="margin-top:10px">השאלה המרכזית</label>
+      <input type="text" id="aQ" placeholder="איך הלקוחה שואלת את זה"/>
+      <label class="lbl" style="margin-top:12px">ניסוחים חלופיים (מופרדים בפסיק)</label>
+      <input type="text" id="aAlt" placeholder="עוד דרכים לשאול את אותו דבר"/>
+      <label class="lbl" style="margin-top:12px">התשובה (גוף בלבד, בלי פתיחה וחתימה)</label>
+      <textarea id="aBody" placeholder="הפתיחה והחתימה נוספות אוטומטית"></textarea>
+      <label class="lbl" style="margin-top:12px">קטגוריה</label>
+      <input type="text" id="aCat" placeholder="למשל מחיר ותשלומים"/>
+      <label class="lbl" style="margin-top:12px">סוג לקוחה</label>
+      <div class="chips" id="aCt">
+        <button class="chip" data-v="לקוחה קיימת">לקוחה קיימת</button>
+        <button class="chip" data-v="עדיין לא לקוחה">עדיין לא לקוחה</button>
+        <button class="chip on" data-v="שתיהן">שתיהן</button>
+      </div>
+      <label class="lbl" style="margin-top:12px">סוג הרשומה</label>
+      <div class="chips" id="aKind">
+        <button class="chip on" data-v="מענה">מענה</button>
+        <button class="chip" data-v="הודעה יזומה">הודעה יזומה</button>
+      </div>
+      <div class="row"><button class="btn" id="aSave">הוספה למאגר</button></div>
+    </div>
+  </div>
+
   <!-- לשונית משתמשים -->
   <div id="tabUsers" style="display:none">
     <div class="panel">

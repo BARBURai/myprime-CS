@@ -25,6 +25,25 @@ export default async function handler(req, res) {
       return send(res, 200, { ok: true });
     }
 
+    // הוספה ישירה של מנהל: נכנס מיד כמאושר
+    if (b.kind === "direct") {
+      if (me.role !== "מנהל") return send(res, 403, { error: "אין הרשאה" });
+      const id = await nextId();
+      await appendRow({
+        "מזהה": id,
+        "שאלה מרכזית": b.question || "",
+        "ניסוחים חלופיים": (b.altPhrasings || []).join("; "),
+        "תשובה (קול ענת)": b.draft || "",
+        "קטגוריה": b.fields?.category || "",
+        "סוג לקוחה": (b.fields?.customerTypes || []).join("; "),
+        "מקור": by,
+        "בריאותי": b.fields?.health ? "כן" : "",
+        "סטטוס": "מאושר",
+        "סוג": b.fields?.kind || "מענה",
+      });
+      return send(res, 200, { ok: true, id });
+    }
+
     // תשובה חדשה
     const id = await nextId();
     await appendRow({
