@@ -7,12 +7,14 @@
 // ============================================================
 
 import { appendRow, nextId, addNotification } from "../lib/sheets.js";
+import { requireUser } from "../lib/users.js";
 import { readBody, send } from "../lib/http.js";
 
 export default async function handler(req, res) {
   try {
     const b = await readBody(req);
-    const by = b.by || "טלי";
+    const me = await requireUser(b);
+    const by = me.name;
 
     if (b.kind === "objection") {
       await addNotification({

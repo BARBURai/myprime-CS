@@ -9,38 +9,76 @@
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-<div class="wrap">
+
+<!-- ===== מסך כניסה ===== -->
+<div class="wrap" id="loginScreen">
+  <div style="text-align:center;padding:38px 0 8px">
+    <div class="brand" style="font-size:24px">My<span>Prime</span></div>
+    <div class="sub">שירות לקוחות</div>
+  </div>
+  <div class="panel">
+    <label class="lbl">מייל</label>
+    <input type="text" id="lEmail" placeholder="הכתובת שרשומה במערכת" autocomplete="username"/>
+    <label class="lbl" style="margin-top:14px">קוד אישי</label>
+    <input type="text" id="lCode" placeholder="הקוד שקיבלת" autocomplete="current-password"/>
+    <div class="row"><button class="btn" id="lGo" style="width:100%">כניסה</button></div>
+    <div id="lErr" class="hint" style="color:var(--warn);display:none"></div>
+  </div>
+</div>
+
+<!-- ===== האפליקציה ===== -->
+<div class="wrap" id="app" style="display:none">
   <header>
     <div>
       <div class="brand">My<span>Prime</span> · שירות לקוחות</div>
-      <div class="sub" id="sub">עוזר תשובות</div>
+      <div class="sub" id="sub"></div>
     </div>
-    <div style="display:flex;align-items:center;gap:14px">
-      <span class="sub">משיבה:
-        <select id="responder" style="width:auto;display:inline-block;padding:5px 8px;font-size:13px"><option>טלי</option><option>שיר</option><option>אפי</option></select>
-      </span>
+    <div style="display:flex;align-items:center;gap:12px">
       <button class="bell" id="bell" title="התראות">🔔<span class="c" id="bc" style="display:none">0</span></button>
+      <button class="btn soft" id="logout">יציאה</button>
     </div>
   </header>
 
+  <div class="chips" id="tabs" style="margin-top:14px"></div>
   <div id="notifs" style="display:none"></div>
 
-  <div class="panel">
-    <label class="lbl">סוג לקוחה</label>
-    <div class="chips" id="scope">
-      <button class="chip on" data-v="all">לא ידוע</button>
-      <button class="chip" data-v="לקוחה קיימת">לקוחה קיימת</button>
-      <button class="chip" data-v="עדיין לא לקוחה">עדיין לא לקוחה</button>
+  <!-- לשונית העוזר -->
+  <div id="tabAssist">
+    <div class="panel">
+      <label class="lbl">סוג לקוחה</label>
+      <div class="chips" id="scope">
+        <button class="chip on" data-v="all">לא ידוע</button>
+        <button class="chip" data-v="לקוחה קיימת">לקוחה קיימת</button>
+        <button class="chip" data-v="עדיין לא לקוחה">עדיין לא לקוחה</button>
+      </div>
+      <label class="lbl" style="margin-top:16px">שם הלקוחה (לא חובה)</label>
+      <input type="text" id="cname" placeholder="ייכנס לפתיחה"/>
+      <label class="lbl" style="margin-top:16px">הדביקי את ההודעה של הלקוחה</label>
+      <textarea id="msg" placeholder="מה שהלקוחה כתבה, כמו שהוא…"></textarea>
+      <div class="row"><button class="btn" id="go">קבלת תשובה</button></div>
     </div>
-    <label class="lbl" style="margin-top:16px">שם הלקוחה (לא חובה)</label>
-    <input type="text" id="cname" placeholder="ייכנס לפתיחה"/>
-    <label class="lbl" style="margin-top:16px">הדביקי את ההודעה של הלקוחה</label>
-    <textarea id="msg" placeholder="מה שהלקוחה כתבה, כמו שהוא…"></textarea>
-    <div class="row"><button class="btn" id="go">קבלת תשובה</button></div>
+    <div id="result"></div>
   </div>
 
-  <div id="result"></div>
+  <!-- לשונית אישורים -->
+  <div id="tabApprove" style="display:none"><div id="queue"></div></div>
+
+  <!-- לשונית משתמשים -->
+  <div id="tabUsers" style="display:none">
+    <div class="panel">
+      <div class="lbl">הוספת משתמש</div>
+      <input type="text" id="uName" placeholder="שם (יופיע בחתימה)"/>
+      <input type="text" id="uEmail" placeholder="מייל" style="margin-top:8px"/>
+      <input type="text" id="uCode" placeholder="קוד אישי (ריק = קוד אקראי)" style="margin-top:8px"/>
+      <select id="uRole" style="margin-top:8px">
+        <option>נציג</option><option>מנהלת שירות</option><option>מנהל</option>
+      </select>
+      <div class="row"><button class="btn" id="uAdd">הוספה</button></div>
+    </div>
+    <div id="usersList"></div>
+  </div>
 </div>
+
 <div class="toast" id="toast"></div>
 <script type="module" src="./app.js"></script>
 </body>

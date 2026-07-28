@@ -6,11 +6,14 @@
 import { readAll } from "../lib/sheets.js";
 import { exactMatch, pool, bodyOf } from "../lib/engine.js";
 import { assist } from "../lib/ai.js";
+import { requireUser } from "../lib/users.js";
 import { readBody, send } from "../lib/http.js";
 
 export default async function handler(req, res) {
   try {
-    const { message, scope = "all", context = {} } = await readBody(req);
+    const body = await readBody(req);
+    await requireUser(body);
+    const { message, scope = "all", context = {} } = body;
     if (!message) return send(res, 400, { error: "no-message" });
 
     const { records } = await readAll();

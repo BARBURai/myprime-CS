@@ -6,11 +6,16 @@
 // ============================================================
 
 import { readAll, updateById, addNotification } from "../lib/sheets.js";
+import { requireUser, isAdmin } from "../lib/users.js";
 import { readBody, send } from "../lib/http.js";
 
 export default async function handler(req, res) {
   try {
-    if (req.method === "GET") {
+    const b0 = await readBody(req);
+    const me = await requireUser(b0);
+    if (!isAdmin(me)) return send(res, 403, { error: "אין הרשאה" });
+
+    if (b0.action === "list") {
       const { records } = await readAll();
       const pending = records.filter(r => r["סטטוס"] === "ממתין לאישור").map(r => ({
         id: r["מזהה"], question: r["שאלה מרכזית"],
@@ -21,8 +26,8 @@ export default async function handler(req, res) {
       return send(res, 200, { pending });
     }
 
-    const b = await readBody(req);
-    const to = b.by === "שיר" ? "שיר" : "טלי"; // מי לעדכן (מקור הרשומה)
+    const b = b0;
+    const to = b.to || "טלי"; // מי לעדכן (מקור הרשומה)
 
     if (b.action === "approve") {
       const map = { "סטטוס": "מאושר" };
