@@ -1,0 +1,45 @@
+// ============================================================
+// api/submit.js — שליחה לאישור Ron
+// kind "new": תשובה חדשה שהעוזר ניסח -> שורה חדשה בסטטוס
+//   "ממתין לאישור" + התראה ל-Ron.
+// kind "objection": השגה על תשובה קיימת -> התראה ל-Ron עם ההערה
+//   וההצעה, בלי לשנות את הרשומה החיה.
+// ============================================================
+
+import { appendRow, nextId, addNotification } from "../lib/sheets.js";
+import { readBody, send } from "../lib/http.js";
+
+export default async function handler(req, res) {
+  try {
+    const b = await readBody(req);
+    const by = b.by || "טלי";
+
+    if (b.kind === "objection") {
+      await addNotification({
+        to: "Ron", type: "השגה",
+        text: `${by} מעירה על ${b.refId}: ${b.note || ""}${b.draft ? "\nהצעה: " + b.draft : ""}`,
+        ref: b.refId || "",
+      });
+      return send(res, 200, { ok: true });
+    }
+
+    // תשובה חדשה
+    const id = await nextId();
+    await appendRow({
+      "מזהה": id,
+      "שאלה מרכזית": b.question || "",
+      "ניסוחים חלופיים": (b.altPhrasings || []).join("; "),
+      "תשובה (קול ענת)": b.draft || "",
+      "קטגוריה": b.fields?.category || "",
+      "סוג לקוחה": (b.fields?.customerTypes || []).join("; "),
+      "מקור": by,
+      "בריאותי": b.fields?.health ? "כן" : "",
+      "סטטוס": "ממתין לאישור",
+      "סוג": "מענה",
+    });
+    await addNotification({ to: "Ron", type: "תשובה חדשה", text: `${by} שלחה לאישור: ${b.question || id}`, ref: id });
+    return send(res, 200, { ok: true, id });
+  } catch (e) {
+    return send(res, 500, { error: String(e.message || e) });
+  }
+}
