@@ -44,6 +44,7 @@ export default async function handler(req, res) {
         "בריאותי": b.fields?.health ? "כן" : "",
         "סטטוס": "מאושר",
         "סוג": b.fields?.kind || "מענה",
+        "נוסח כללי": b.fields?.general ? "כן" : "",
       });
       return send(res, 200, { ok: true, id });
     }
@@ -61,6 +62,7 @@ export default async function handler(req, res) {
       "בריאותי": b.fields?.health ? "כן" : "",
       "סטטוס": "ממתין לאישור",
       "סוג": "מענה",
+      "נוסח כללי": b.fields?.general ? "כן" : "",
     });
     for (const a of await adminNames()) {
       await addNotification({ to: a, type: "תשובה חדשה", text: `${by} שלחה לאישור: ${b.question || id}`, ref: id });

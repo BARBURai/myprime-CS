@@ -124,7 +124,7 @@
   <!-- לשונית הוספת תשובה (מנהל) -->
   <div id="tabAdd" style="display:none">
     <div class="panel">
-      <div class="lbl">הוספת תשובה למאגר · נכנסת מיד כמאושרת</div>
+      <div class="lbl" id="aTitle">הוספת תשובה למאגר</div>
       <label class="lbl" style="margin-top:10px">השאלה המרכזית</label>
       <input type="text" id="aQ" placeholder="איך הלקוחה שואלת את זה"/>
       <label class="lbl" style="margin-top:12px">ניסוחים חלופיים (מופרדים בפסיק)</label>
@@ -144,6 +144,11 @@
         <button class="chip on" data-v="מענה">מענה</button>
         <button class="chip" data-v="הודעה יזומה">הודעה יזומה</button>
       </div>
+      <label class="lbl" style="margin-top:12px">נוסח כללי</label>
+      <div class="chips" id="aGen">
+        <button class="chip" data-v="1">כן, זה נוסח כללי</button>
+      </div>
+      <div class="hint">נוסח כללי אינו מופיע בחיפוש רגיל. המערכת מגישה אותו כשאין תשובה מדויקת בנושא הזה.</div>
       <div class="row"><button class="btn" id="aSave">הוספה למאגר</button></div>
     </div>
   </div>

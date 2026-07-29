@@ -4,7 +4,7 @@
 // ============================================================
 
 import { readAll } from "../lib/sheets.js";
-import { exactMatch, fuzzyMatch, pool, bodyOf } from "../lib/engine.js";
+import { exactMatch, fuzzyMatch, pool, bodyOf, generalFor } from "../lib/engine.js";
 import { assist } from "../lib/ai.js";
 import { requireUser } from "../lib/users.js";
 import { readBody, send } from "../lib/http.js";
@@ -52,6 +52,18 @@ export default async function handler(req, res) {
       });
     }
     if (out.action === "ask") return send(res, 200, { mode: "ask", questions: out.questions || [] });
+    // לפני שמנסחים משהו חדש: אם יש נוסח כללי מאושר לקטגוריה, מגישים אותו
+    const gen = generalFor(records, out.fields?.category);
+    if (gen) {
+      return send(res, 200, {
+        mode: "answer", id: gen["מזהה"], text: bodyOf(gen),
+        category: gen["קטגוריה"], health: gen["בריאותי"] === "כן",
+        matchedQuestion: gen["שאלה מרכזית"],
+        general: true,
+        generalReason: `לא נמצאה תשובה מדויקת להודעה הזו, ולכן מוצג הנוסח הכללי המאושר בנושא ${gen["קטגוריה"] || "הזה"}.`,
+      });
+    }
+
     return send(res, 200, {
       mode: "draft", draft: out.draft || "",
       question: out.question || "", altPhrasings: out.altPhrasings || [],

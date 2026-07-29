@@ -74,7 +74,7 @@ const SECTIONS = [
   { id: "Inbox",   icon: "📥", title: "לטיפולי",      sub: "כל מה שממתין לך: אישורים והשגות", admin: true },
   { id: "Assist",  icon: "💬", title: "עוזר תשובות",  sub: "הדביקי הודעה של לקוחה וקבלי תשובה מוכנה" },
   { id: "Browse",  icon: "📚", title: "מאגר התשובות", sub: "כל התשובות הקיימות, עם חיפוש וסינון" },
-  { id: "Add",     icon: "➕", title: "הוספת תשובה",  sub: "הוספה ישירה למאגר, נכנסת כמאושרת", admin: true },
+  { id: "Add",     icon: "➕", title: "הוספת תשובה",  sub: "הוספת תשובה חדשה למאגר" },
   { id: "Users",   icon: "👥", title: "משתמשים",      sub: "הרשאות, קודים אישיים וחסימה", admin: true },
 ];
 
@@ -95,6 +95,13 @@ function buildTabs() {
 
 function showSection(id) {
   current = id;
+  if (id === "Add" && $("aTitle")) {
+    const admin = me.role === "מנהל";
+    $("aTitle").textContent = admin
+      ? "הוספת תשובה למאגר · נכנסת מיד כמאושרת"
+      : "הצעת תשובה חדשה · תישלח לאישור לפני שתיכנס למאגר";
+    $("aSave").textContent = admin ? "הוספה למאגר" : "שליחה לאישור";
+  }
   if (id === "Assist") setAssistInput(true);
   SECTIONS.forEach(x => { const el = $("tab" + x.id); if (el) el.style.display = (x.id === id ? "block" : "none"); });
   [...$("nav").children].forEach(b => b.classList.toggle("on", b.dataset.t === id));
@@ -141,6 +148,7 @@ function renderAssist(res) {
       <div class="lbl" style="margin-top:12px">השאלה במאגר</div>
       <div style="font-size:15px;font-weight:500">${esc(res.matchedQuestion || lastMsg)}</div>
       ${res.near ? `<div class="hint">נמצאה בהתאמה קרובה. כדאי לוודא שהתשובה מתאימה.</div>` : ""}
+      ${res.general ? `<div style="background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:11px 13px;margin-top:12px;font-size:14px;line-height:1.7">${esc(res.generalReason || "מוצג נוסח כללי מאושר.")}<br>אם צריך תשובה ספציפית יותר, אפשר לשלוח השגה.</div>` : ""}
       ${res.justApproved ? `<div style="background:var(--ok-soft);color:var(--ok);border-radius:12px;padding:11px 13px;margin-top:14px;font-size:14px;line-height:1.7">התשובה אושרה. כדאי לקרוא אותה לפני השליחה, כי ייתכן שהנוסח שונה ממה שנשלח לאישור.<br>אם משהו לא מדויק, אפשר לשלוח השגה. אם הכול בסדר, אפשר להעתיק ולשלוח ללקוחה.</div>` : ""}
       <div class="lbl" style="margin-top:14px">התשובה המאושרת · מוכנה לשליחה</div>
       <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px">${esc(body)}</div>
@@ -664,6 +672,8 @@ $("bList").addEventListener("click", async e => {
     <label class="lbl" style="margin-top:10px">סוג לקוחה</label>
     <div class="chips ect">${["לקוחה קיימת", "עדיין לא לקוחה", "שתיהן"].map(o =>
       `<button class="chip ${rec.customerType.includes(o) ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
+    <label class="lbl" style="margin-top:10px">נוסח כללי</label>
+    <div class="chips egen"><button class="chip ${rec.general ? "on" : ""}" data-v="1">כן, זה נוסח כללי</button></div>
     <label class="lbl" style="margin-top:10px">סטטוס</label>
     <div class="chips est">${["מאושר", "טיוטה", "לא לפרסם"].map(o =>
       `<button class="chip ${rec.status === o ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
@@ -673,6 +683,9 @@ $("bList").addEventListener("click", async e => {
     </div>`;
   growAll(area);
   area.querySelector(".ect").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (b) b.classList.toggle("on");
+  });
+  area.querySelector(".egen").addEventListener("click", ev => {
     const b = ev.target.closest("button"); if (b) b.classList.toggle("on");
   });
   area.querySelector(".est").addEventListener("click", ev => {
@@ -690,12 +703,14 @@ $("bList").addEventListener("click", async e => {
       category: area.querySelector(".ec").value.trim(),
       customerType: [...area.querySelectorAll(".ect .on")].map(x => x.dataset.v).join("; "),
       status: forceApprove ? "מאושר" : chosen,
+      general: !!area.querySelector(".egen .on"),
     };
     const r = await api("/api/records", payload);
     if (r.error) return toast("שגיאה: " + r.error);
     Object.assign(rec, {
       question: payload.question, alt: payload.alt, answer: payload.answer,
-      category: payload.category, customerType: payload.customerType, status: payload.status,
+      category: payload.category, customerType: payload.customerType,
+      status: payload.status, general: payload.general,
     });
     if (payload.status === "מאושר") clearNotifsFor(id);
     toast(payload.status === "מאושר" ? "נשמר ואושר · עלה לאוויר" : "נשמר · " + payload.status);
@@ -752,7 +767,7 @@ async function openFromUrl() {
 }
 
 // ---------- הוספת תשובה ידנית (מנהל) ----------
-["aCt", "aKind"].forEach(id => {
+["aCt", "aKind", "aGen"].forEach(id => {
   const el = $(id); if (!el) return;
   el.addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
@@ -763,18 +778,21 @@ async function openFromUrl() {
 if ($("aSave")) $("aSave").onclick = async () => {
   const q = $("aQ").value.trim(), body = $("aBody").value.trim();
   if (!q || !body) return toast("נא למלא שאלה ותשובה");
+  const admin = me.role === "מנהל";
   const r = await api("/api/submit", {
-    kind: "direct", question: q, draft: body,
+    kind: admin ? "direct" : "new", question: q, draft: body,
     altPhrasings: $("aAlt").value.split(",").map(x => x.trim()).filter(Boolean),
     fields: {
       category: $("aCat").value.trim(),
       customerTypes: [...$("aCt").querySelectorAll(".on")].map(x => x.dataset.v),
       kind: $("aKind").querySelector(".on")?.dataset.v || "מענה",
+      general: !!$("aGen").querySelector(".on"),
       health: false,
     },
   });
   if (r.error) return toast("שגיאה: " + r.error);
-  toast("נוסף למאגר · " + r.id);
+  toast(admin ? "נוסף למאגר · " + r.id : "נשלח לאישור");
+  BROWSE = [];
   $("aQ").value = $("aAlt").value = $("aBody").value = $("aCat").value = "";
 };
 
