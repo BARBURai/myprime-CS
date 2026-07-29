@@ -55,13 +55,13 @@ function start() {
   poll(); setInterval(poll, 20000);
   setupPush();
   openFromUrl();
-  if (me.role === "מנהל") loadQueue();
+  if (me.role === "מנהל") loadInbox();
 }
 
 const SECTIONS = [
+  { id: "Inbox",   icon: "📥", title: "לטיפולי",      sub: "כל מה שממתין לך: אישורים והשגות", admin: true },
   { id: "Assist",  icon: "💬", title: "עוזר תשובות",  sub: "הדביקי הודעה של לקוחה וקבלי תשובה מוכנה" },
   { id: "Browse",  icon: "📚", title: "מאגר התשובות", sub: "כל התשובות הקיימות, עם חיפוש וסינון" },
-  { id: "Approve", icon: "✅", title: "אישורים",      sub: "פריטים שממתינים לאישור שלך", admin: true },
   { id: "Add",     icon: "➕", title: "הוספת תשובה",  sub: "הוספה ישירה למאגר, נכנסת כמאושרת", admin: true },
   { id: "Users",   icon: "👥", title: "משתמשים",      sub: "הרשאות, קודים אישיים וחסימה", admin: true },
 ];
@@ -73,12 +73,12 @@ function buildTabs() {
   $("nav").innerHTML = mySections().map(x => `
     <button data-t="${x.id}">
       <span class="em">${x.icon}</span>${x.title}
-      ${x.id === "Approve" ? `<span class="cnt" id="qApprove" style="display:none"></span>` : ""}
+      ${x.id === "Inbox" ? `<span class="cnt" id="qApprove" style="display:none"></span>` : ""}
     </button>`).join("");
   $("nav").onclick = e => {
     const b = e.target.closest("button[data-t]"); if (b) showSection(b.dataset.t);
   };
-  showSection("Assist");
+  showSection(me.role === "מנהל" ? "Inbox" : "Assist");
 }
 
 function showSection(id) {
@@ -88,7 +88,7 @@ function showSection(id) {
   [...$("nav").children].forEach(b => b.classList.toggle("on", b.dataset.t === id));
   const sec = SECTIONS.find(x => x.id === id);
   $("sectionTitle").innerHTML = `<span class="tt">${sec.icon} ${sec.title}</span><span class="ss">${sec.sub}</span>`;
-  if (id === "Approve") loadQueue();
+  if (id === "Inbox") loadInbox();
   if (id === "Browse") loadBrowse();
 }
 
@@ -195,83 +195,6 @@ function submit(payload) {
 }
 
 // ---------- אישורים ----------
-let editingApproval = false; // נדלק ברגע שמתחילים לערוך תשובה, כדי שרענון לא ימחק
-let queueStatus = "ממתין לאישור";
-
-// מתג הסטטוס בתור האישורים
-if ($("qFilter")) $("qFilter").addEventListener("click", e => {
-  const b = e.target.closest("button"); if (!b) return;
-  [...$("qFilter").children].forEach(x => x.classList.toggle("on", x === b));
-  queueStatus = b.dataset.v; queue = []; qi = 0; editingApproval = false;
-  loadQueue();
-});
-
-async function loadQueue(silent) {
-  const r = await api("/api/approve", { action: "list", statuses: [queueStatus] });
-  // מספרים על כל כפתור סטטוס
-  if (r.counts && $("qFilter")) {
-    [...$("qFilter").children].forEach(b => {
-      const n = r.counts[b.dataset.v] || 0;
-      b.textContent = b.textContent.replace(/\s*\(\d+\)$/, "") + ` (${n})`;
-    });
-  }
-  const next = r.pending || [];
-  const waiting = (r.counts && r.counts["ממתין לאישור"]) || 0;
-  const badge = $("qApprove");
-  if (badge) { badge.textContent = waiting; badge.style.display = waiting ? "inline" : "none"; }
-  // ברענון אוטומטי: לא מציירים מחדש בזמן עריכה, כדי לא לאבד טקסט
-  if (silent && (editingApproval || ["ft", "fq", "fa"].includes(document.activeElement?.id))) { queue = queue.length ? queue : next; return; }
-  queue = next; qi = 0;
-  drawQueue();
-}
-function drawQueue() {
-  if (qi >= queue.length) {
-    $("queue").innerHTML = `<div class="empty">אין פריטים בסטטוס «${esc(queueStatus)}» 🌷</div>`;
-    return;
-  }
-  const it = queue[qi];
-  $("queue").innerHTML = `<div class="panel">
-    <div class="acts" style="margin-bottom:8px">
-      <span class="badge warn">${esc(queueStatus)} · ${qi + 1} מתוך ${queue.length}</span>
-      <span class="meta">· ${esc(it.category || "")} · ${esc(it.customerType || "")} · הכינה: ${esc(it.source || "")}</span>
-    </div>
-    <label class="lbl">השאלה המרכזית · קצרה, כדי שתימצא בפעם הבאה</label>
-    <input type="text" id="fq" value="${esc(it.question || "")}"/>
-    <label class="lbl" style="margin-top:10px">ניסוחים חלופיים (מופרדים בפסיק)</label>
-    <input type="text" id="fa" value="${esc((it.alt || "").split(";").map(x => x.trim()).filter(Boolean).join(", "))}"/>
-    <label class="lbl" style="margin-top:10px">התשובה · אפשר לערוך</label>
-    <textarea id="ft" style="min-height:150px">${esc(it.text || "")}</textarea>
-    <div class="row" style="margin-top:14px">
-      <button class="btn" id="ok">אישור · יעלה לאוויר</button>
-      <button class="btn soft" id="ret">החזרה לטלי</button>
-    </div></div>`;
-  editingApproval = false;
-  ["ft", "fq", "fa"].forEach(id => $(id) && $(id).addEventListener("input", () => { editingApproval = true; }));
-  $("ok").onclick = () => qAct("approve", {
-    finalText: $("ft").value.trim(),
-    question: $("fq").value.trim(),
-    altPhrasings: $("fa").value.split(",").map(x => x.trim()).filter(Boolean).join("; "),
-  });
-  $("ret").onclick = () => qAct("return", { note: prompt("הערה לטלי (לא חובה):") || "" });
-}
-function qAct(action, extra) {
-  const it = queue[qi];
-  api("/api/approve", { action, id: it.id, to: it.source || "טלי", ...extra })
-    .then(() => {
-      toast(action === "approve" ? "אושר ועלה לאוויר" : "הוחזר");
-      clearNotifsFor(it.id);
-      editingApproval = false; qi++; drawQueue();
-    })
-    .catch(() => toast("שגיאה"));
-}
-
-if ($("qMode")) $("qMode").addEventListener("click", e => {
-  const b = e.target.closest("button"); if (!b) return;
-  [...e.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
-  includeDrafts = !!b.dataset.v;
-  queue = []; qi = 0; editingApproval = false;
-  loadQueue();
-});
 
 // ---------- ניהול משתמשים ----------
 async function loadUsers() {
@@ -366,7 +289,8 @@ function buildChunks(oldText, newText) {
 }
 
 // ---------- בדיקת השגה: הקיים מול המוצע ----------
-function renderObjection(rec, rawText, from) {
+function renderObjection(rec, rawText, from, target) {
+  const OUT = target || "result";
   // פענוח טקסט ההתראה: "טלי מעירה על MP-XXX: <הערה>" ואחריו אולי "הצעה: <נוסח>"
   const idx = rawText.indexOf("הצעה:");
   const head = idx >= 0 ? rawText.slice(0, idx) : rawText;
@@ -388,7 +312,7 @@ function renderObjection(rec, rawText, from) {
 
   // ---- אין הצעת נוסח: עריכה חופשית ----
   if (!proposed) {
-    $("result").innerHTML = `<div class="panel">${header}
+    $(OUT).innerHTML = `<div class="panel">${header}
       <div class="lbl" style="margin-top:16px">הנוסח הקיים · אפשר לתקן</div>
       <textarea id="objNew" style="min-height:160px">${esc(rec.text || "")}</textarea>
       ${replyRow}
@@ -396,7 +320,7 @@ function renderObjection(rec, rawText, from) {
         <button class="btn" id="objApprove">שמירת הנוסח</button>
         <button class="btn soft" id="objKeep">להשאיר כמו שהוא</button>
       </div></div>`;
-    wireObjectionButtons(rec, from, () => $("objNew").value.trim());
+    wireObjectionButtons(rec, from, () => $("objNew").value.trim(), OUT);
     return;
   }
 
@@ -426,7 +350,7 @@ function renderObjection(rec, rawText, from) {
     $("finalPreview").textContent = finalText();
   }
 
-  $("result").innerHTML = `<div class="panel">${header}
+  $(OUT).innerHTML = `<div class="panel">${header}
     <div class="lbl" style="margin-top:16px" id="diffCount"></div>
     <div class="diffbox" id="diffArea"></div>
     <div class="difflegend">
@@ -456,11 +380,15 @@ function renderObjection(rec, rawText, from) {
   $("accAll").onclick = () => { chunks.forEach((c, i) => { if (c.type === "change") state[i] = "accepted"; }); draw(); };
   $("rejAll").onclick = () => { chunks.forEach((c, i) => { if (c.type === "change") state[i] = "rejected"; }); draw(); };
 
-  wireObjectionButtons(rec, from, finalText);
+  wireObjectionButtons(rec, from, finalText, OUT);
 }
 
 /** מחבר את כפתורי השמירה והביטול, כולל עדכון חזרה למגישה */
-function wireObjectionButtons(rec, from, getText) {
+function wireObjectionButtons(rec, from, getText, OUT) {
+  const done = () => {
+    if (OUT === "ibWork") backToInbox();
+    else renderAssist({ mode: "answer", id: rec.id, text: rec.text, category: rec.category, matchedQuestion: rec.question });
+  };
   $("objApprove").onclick = async () => {
     const text = (getText() || "").trim();
     const r = await api("/api/records", {
@@ -471,7 +399,8 @@ function wireObjectionButtons(rec, from, getText) {
     BROWSE = [];
     clearNotifsFor(rec.id);
     toast(from ? `הנוסח עודכן · ${from} קיבלה עדכון` : "הנוסח עודכן במאגר");
-    renderAssist({ mode: "answer", id: rec.id, text, category: rec.category, matchedQuestion: rec.question });
+    if (OUT === "ibWork") backToInbox();
+    else renderAssist({ mode: "answer", id: rec.id, text, category: rec.category, matchedQuestion: rec.question });
   };
   $("objKeep").onclick = async () => {
     const r = await api("/api/records", {
@@ -481,9 +410,124 @@ function wireObjectionButtons(rec, from, getText) {
     if (r.error) return toast("שגיאה: " + r.error);
     clearNotifsFor(rec.id);
     toast(from ? `${from} קיבלה עדכון שהנוסח נשאר` : "נשאר ללא שינוי");
-    renderAssist({ mode: "answer", id: rec.id, text: rec.text, category: rec.category, matchedQuestion: rec.question });
+    done();
   };
 }
+
+
+// ---------- לטיפולי: כל מה שדורש פעולה ----------
+let INBOX = [], ibDrafts = false;
+
+async function loadInbox() {
+  $("ibWork").innerHTML = "";
+  $("ibList").innerHTML = `<div class="spin">טוען…</div>`;
+
+  const statuses = ibDrafts
+    ? ["ממתין לאישור", "הוחזר לטיפול", "טיוטה", "ממתין לניסוח"]
+    : ["ממתין לאישור", "הוחזר לטיפול"];
+  const r = await api("/api/approve", { action: "list", statuses });
+  const pending = (r.pending || []).map(x => ({ kind: "approve", ...x }));
+  const objections = NOTIFS
+    .filter(n => n.type === "השגה" && n.ref)
+    .map(n => ({ kind: "objection", id: n.ref, note: n.text, row: n.row, from: n.from || (n.text.match(/^(\S+)\s+מעיר/) || [])[1] || "" }));
+
+  INBOX = [...objections, ...pending];
+  const badge = $("qApprove");
+  const count = objections.length + pending.filter(x => x.status === "ממתין לאישור" || !x.status).length;
+  if (badge) { badge.textContent = count; badge.style.display = count ? "inline" : "none"; }
+  $("ibInfo").textContent = `${INBOX.length} פריטים בתור`;
+  drawInbox();
+}
+
+function drawInbox() {
+  if (!INBOX.length) { $("ibList").innerHTML = `<div class="empty">אין כרגע מה לטפל 🌷</div>`; return; }
+  $("ibList").innerHTML = INBOX.map((x, i) => `<div class="panel" style="padding:13px 15px">
+    <div class="acts" style="justify-content:space-between">
+      <div style="min-width:0">
+        <div style="font-size:15px;font-weight:600">${esc(x.kind === "objection" ? "השגה על " + x.id : (x.question || x.id))}</div>
+        <div class="meta" style="margin-top:5px">${x.kind === "objection"
+          ? `מ${esc(x.from || "הצוות")} · דורש הכרעה`
+          : `${esc(x.status || "ממתין לאישור")} · ${esc(x.category || "ללא קטגוריה")} · הכינה: ${esc(x.source || "")}`}</div>
+      </div>
+      <button class="btn" data-i="${i}">טיפול</button>
+    </div></div>`).join("");
+}
+
+$("ibList").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-i]"); if (!b) return;
+  const item = INBOX[Number(b.dataset.i)];
+  $("ibList").style.display = "none";
+  $("ibWork").innerHTML = `<div class="spin">טוען…</div>`;
+
+  if (item.kind === "objection") {
+    const rec = await api("/api/record", { id: item.id });
+    if (rec.error) { $("ibWork").innerHTML = `<div class="panel"><span class="badge warn">${esc(rec.error)}</span></div>`; return; }
+    renderObjection(rec, item.note || "", item.from || "", "ibWork");
+    if (item.row) markNotifsRead([item.row]);
+  } else {
+    renderApproval(item);
+  }
+  prependInboxBack();
+});
+
+function prependInboxBack() {
+  const bar = document.createElement("div");
+  bar.className = "acts"; bar.style.margin = "0 0 12px";
+  bar.innerHTML = `<button class="btn soft" id="ibBack">→ חזרה לרשימה</button>`;
+  $("ibWork").prepend(bar);
+  $("ibBack").onclick = backToInbox;
+}
+
+function backToInbox() {
+  $("ibWork").innerHTML = "";
+  $("ibList").style.display = "block";
+  loadInbox();
+}
+
+/** כרטיס אישור בודד בתוך לטיפולי */
+function renderApproval(it) {
+  $("ibWork").innerHTML = `<div class="panel">
+    <div class="acts" style="margin-bottom:8px">
+      <span class="badge warn">${esc(it.status || "ממתין לאישור")}</span>
+      <span class="meta">· ${esc(it.id)} · ${esc(it.category || "")} · ${esc(it.customerType || "")} · הכינה: ${esc(it.source || "")}</span>
+    </div>
+    <label class="lbl">השאלה המרכזית · קצרה, כדי שתימצא בפעם הבאה</label>
+    <input type="text" id="fq" value="${esc(it.question || "")}"/>
+    <label class="lbl" style="margin-top:10px">ניסוחים חלופיים (מופרדים בפסיק)</label>
+    <input type="text" id="fa" value="${esc((it.alt || "").split(";").map(x => x.trim()).filter(Boolean).join(", "))}"/>
+    <label class="lbl" style="margin-top:10px">התשובה · אפשר לערוך</label>
+    <textarea id="ft" style="min-height:170px">${esc(it.text || "")}</textarea>
+    <div class="acts" style="margin-top:14px">
+      <button class="btn" id="ibOk">אישור · יעלה לאוויר</button>
+      <button class="btn soft" id="ibRet">החזרה ל${esc(it.source || "טלי")}</button>
+    </div></div>`;
+
+  $("ibOk").onclick = async () => {
+    const r = await api("/api/approve", {
+      action: "approve", id: it.id, to: it.source || "טלי",
+      finalText: $("ft").value.trim(),
+      question: $("fq").value.trim(),
+      altPhrasings: $("fa").value.split(",").map(x => x.trim()).filter(Boolean).join("; "),
+    });
+    if (r.error) return toast("שגיאה: " + r.error);
+    clearNotifsFor(it.id); BROWSE = [];
+    toast("אושר ועלה לאוויר"); backToInbox();
+  };
+  $("ibRet").onclick = async () => {
+    const note = prompt("הערה (לא חובה):") || "";
+    const r = await api("/api/approve", { action: "return", id: it.id, to: it.source || "טלי", note });
+    if (r.error) return toast("שגיאה: " + r.error);
+    clearNotifsFor(it.id);
+    toast("הוחזר"); backToInbox();
+  };
+}
+
+if ($("ibMode")) $("ibMode").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+  ibDrafts = !!b.dataset.v;
+  loadInbox();
+});
 
 // ---------- מאגר התשובות ----------
 let BROWSE = [], canEdit = false;
@@ -700,7 +744,7 @@ async function poll() {
       </div>
         </div>`).join("")
       : `<div class="empty">אין התראות</div>`;
-    if (me.role === "מנהל") loadQueue(true);
+    if (me.role === "מנהל" && current === "Inbox") loadInbox();
   } catch {}
 }
 
@@ -758,6 +802,7 @@ $("notifs").addEventListener("click", async e => {
   if (b.dataset.row) markNotifsRead([Number(b.dataset.row)]);
   showSection("Assist");
   lastMsg = r.question || "";
+  if (me.role === "מנהל") { $("notifs").style.display = "none"; showSection("Inbox"); return; }
   setAssistInput(false);
   if (b.dataset.type === "השגה") {
     const raw = b.dataset.note || "";
