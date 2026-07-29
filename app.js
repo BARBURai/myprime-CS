@@ -541,8 +541,8 @@ async function loadBrowse() {
   if (r.error) { $("bList").innerHTML = `<div class="panel"><span class="badge warn">${esc(r.error)}</span></div>`; return; }
   BROWSE = r.records || []; canEdit = !!r.canEdit;
   if (canEdit) $("bStatusWrap").style.display = "block";
-  $("bCat").innerHTML = `<button class="chip on" data-v="">הכול</button>` +
-    (r.categories || []).map(c => `<button class="chip" data-v="${esc(c)}">${esc(c)}</button>`).join("");
+  $("bCat").innerHTML = `<button class="on" data-v="">כל הקטגוריות</button>` +
+    (r.categories || []).map(c => `<button data-v="${esc(c)}">${esc(c)}</button>`).join("");
   drawBrowse();
 }
 
@@ -554,7 +554,32 @@ function pickChips(wrapId, setter) {
     setter(b.dataset.v); drawBrowse();
   });
 }
-pickChips("bCat", v => bCat = v);
+
+// --- מסנן הקטגוריה: תפריט נפתח שסגור כברירת מחדל ---
+if ($("bCatHead")) {
+  $("bCatHead").addEventListener("click", e => {
+    if (e.target.closest("#bCatClear")) return;
+    $("bCatDD").classList.toggle("open");
+  });
+  $("bCatClear").addEventListener("click", () => setCategory(""));
+  $("bCat").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    setCategory(b.dataset.v);
+  });
+  document.addEventListener("click", e => {
+    if (!e.target.closest("#bCatDD")) $("bCatDD").classList.remove("open");
+  });
+}
+
+function setCategory(v) {
+  bCat = v;
+  $("bCatLabel").textContent = v || "כל הקטגוריות";
+  $("bCatHead").classList.toggle("sel", !!v);
+  $("bCatClear").style.display = v ? "inline" : "none";
+  [...$("bCat").children].forEach(x => x.classList.toggle("on", x.dataset.v === v));
+  $("bCatDD").classList.remove("open");
+  drawBrowse();
+}
 pickChips("bType", v => bType = v);
 pickChips("bStatus", v => bStatus = v);
 if ($("bSearch")) $("bSearch").addEventListener("input", () => drawBrowse());

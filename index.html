@@ -89,7 +89,16 @@
     <div class="panel">
       <input type="text" id="bSearch" placeholder="חיפוש בשאלות ובתשובות…"/>
       <label class="lbl" style="margin-top:14px">קטגוריה</label>
-      <div class="chips" id="bCat"></div>
+      <div class="dd" id="bCatDD">
+        <div class="head" id="bCatHead">
+          <span id="bCatLabel">כל הקטגוריות</span>
+          <span style="display:flex;align-items:center;gap:6px">
+            <button class="clear" id="bCatClear" style="display:none" title="ניקוי">✕</button>
+            <span class="arrow">▼</span>
+          </span>
+        </div>
+        <div class="list" id="bCat"></div>
+      </div>
       <label class="lbl" style="margin-top:14px">סוג לקוחה</label>
       <div class="chips" id="bType">
         <button class="chip on" data-v="">הכול</button>

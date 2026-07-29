@@ -73,3 +73,23 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent-soft);bor
 .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
 .finalbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;
   padding:12px 14px;font-size:15px;line-height:1.85;white-space:pre-wrap}
+
+/* ---- מסנן קטגוריה נפתח ---- */
+.dd{position:relative}
+.dd .head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:11px 14px;cursor:pointer;font-size:14.5px;color:var(--ink)}
+.dd .head.sel{border-color:var(--accent);color:var(--accent);font-weight:600}
+.dd .head .arrow{color:var(--muted);font-size:12px;transition:.2s}
+.dd.open .head .arrow{transform:rotate(180deg)}
+.dd .clear{border:none;background:transparent;color:var(--muted);cursor:pointer;
+  font-size:15px;padding:0 2px;line-height:1}
+.dd .list{display:none;margin-top:8px;border:1px solid var(--line);border-radius:12px;
+  background:var(--card);max-height:270px;overflow-y:auto}
+.dd.open .list{display:block}
+.dd .list button{display:block;width:100%;text-align:right;background:transparent;
+  border:none;border-bottom:1px solid var(--line);padding:11px 14px;cursor:pointer;
+  font-family:inherit;font-size:14px;color:var(--ink)}
+.dd .list button:last-child{border-bottom:none}
+.dd .list button:hover{background:var(--bg)}
+.dd .list button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
