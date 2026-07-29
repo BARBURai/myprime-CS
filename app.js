@@ -155,10 +155,39 @@ function renderAssist(res) {
       <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px">${esc(body)}</div>
       <div class="acts">
         <button class="btn" id="copy">העתקה ושליחה ללקוחה</button>
+        ${me.role === "מנהל" ? `<button class="btn soft" id="quickEdit">עריכה ושמירה</button>` : ""}
         <button class="btn soft" id="obj">יש לי השגה</button>
         <span class="meta">· ${esc(res.category || "")}</span>
       </div><div id="objArea"></div></div>`;
     $("copy").onclick = () => copy(body);
+
+    // עריכה מהירה ושמירה ישירה למאגר, למנהל בלבד
+    if ($("quickEdit")) $("quickEdit").onclick = () => {
+      const a = $("objArea");
+      if (a.innerHTML) { a.innerHTML = ""; return; }
+      a.innerHTML = `
+        <label class="lbl" style="margin-top:12px">התשובה · עריכה ישירה במאגר</label>
+        <textarea id="qeBody" style="min-height:170px">${esc(res.text || "")}</textarea>
+        <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות</label>
+        <textarea id="qeNote" class="grow">${esc(res.note || "")}</textarea>
+        <div class="acts" style="margin-top:10px">
+          <button class="btn" id="qeSave">שמירה למאגר</button>
+        </div>`;
+      growAll(a);
+      $("qeSave").onclick = async () => {
+        const r = await api("/api/records", {
+          action: "update", id: res.id,
+          answer: $("qeBody").value.trim(),
+          note: $("qeNote").value.trim(),
+          status: "מאושר",
+        });
+        if (r.error) return toast("שגיאה: " + r.error);
+        BROWSE = [];
+        toast("נשמר במאגר · " + res.id);
+        renderAssist({ ...res, text: $("qeBody").value.trim(), note: $("qeNote").value.trim() });
+      };
+    };
+
     $("obj").onclick = () => {
       const a = $("objArea"); if (a.innerHTML) { a.innerHTML = ""; return; }
       a.innerHTML = `
@@ -196,10 +225,16 @@ function renderAssist(res) {
       ${["לקוחה קיימת", "עדיין לא לקוחה", "שתיהן"].map(o =>
         `<button class="chip ${(f.customerTypes || []).includes(o) ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}
     </div>
-    <div class="acts" style="margin-top:16px"><button class="btn" id="send">שליחה לאישור</button></div></div>`;
+    <label class="lbl" style="margin-top:12px">הערה תפעולית לצוות (לא חובה)</label>
+    <textarea id="dNote" class="grow"></textarea>
+    <div class="acts" style="margin-top:16px">
+      <button class="btn" id="send">${me.role === "מנהל" ? "שמירה למאגר" : "שליחה לאישור"}</button>
+    </div></div>`;
+  growAll($("result"));
   $("ct").addEventListener("click", e => { const b = e.target.closest("button"); if (b) b.classList.toggle("on"); });
   $("send").onclick = () => submit({
-    kind: "new",
+    kind: me.role === "מנהל" ? "direct" : "new",
+    note: ($("dNote")?.value || "").trim(),
     question: ($("q2").value.trim() || lastMsg).slice(0, 120),
     altPhrasings: $("alt2").value.split(",").map(x => x.trim()).filter(Boolean),
     draft: $("draft").value.trim(),
@@ -209,10 +244,15 @@ function renderAssist(res) {
 }
 
 function submit(payload) {
-  api("/api/submit", payload).then(() => {
-    toast("נשלח לאישור");
-    $("result").innerHTML = `<div class="panel"><span class="badge ok">נשלח לאישור</span>
-      <div class="answer" style="color:var(--muted)">נעדכן כאן כשזה יאושר.</div></div>`;
+  const direct = payload.kind === "direct";
+  api("/api/submit", payload).then(r => {
+    if (r && r.error) return toast("שגיאה: " + r.error);
+    BROWSE = [];
+    toast(direct ? "נשמר במאגר" + (r.id ? " · " + r.id : "") : "נשלח לאישור");
+    $("result").innerHTML = `<div class="panel"><span class="badge ok">${direct ? "נשמר במאגר" : "נשלח לאישור"}</span>
+      <div class="answer" style="color:var(--muted)">${direct
+        ? "התשובה מאושרת וזמינה מיד בחיפוש."
+        : "נעדכן כאן כשזה יאושר."}</div></div>`;
   }).catch(() => toast("שגיאה בשליחה"));
 }
 
