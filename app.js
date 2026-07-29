@@ -57,24 +57,37 @@ function start() {
   if (me.role === "מנהל") loadQueue();
 }
 
+const SECTIONS = [
+  { id: "Assist",  icon: "💬", title: "עוזר תשובות",  sub: "הדביקי הודעה של לקוחה וקבלי תשובה מוכנה" },
+  { id: "Browse",  icon: "📚", title: "מאגר התשובות", sub: "כל התשובות הקיימות, עם חיפוש וסינון" },
+  { id: "Approve", icon: "✅", title: "אישורים",      sub: "פריטים שממתינים לאישור שלך", admin: true },
+  { id: "Add",     icon: "➕", title: "הוספת תשובה",  sub: "הוספה ישירה למאגר, נכנסת כמאושרת", admin: true },
+  { id: "Users",   icon: "👥", title: "משתמשים",      sub: "הרשאות, קודים אישיים וחסימה", admin: true },
+];
+
+let current = "Assist";
+const mySections = () => SECTIONS.filter(x => !x.admin || me.role === "מנהל");
+
 function buildTabs() {
-  const tabs = [{ id: "Assist", label: "עוזר תשובות" }, { id: "Browse", label: "מאגר התשובות" }];
-  if (me.role === "מנהל") {
-    tabs.push({ id: "Approve", label: "אישורים" });
-    tabs.push({ id: "Add", label: "הוספת תשובה" });
-    tabs.push({ id: "Users", label: "משתמשים" });
-  }
-  $("tabs").innerHTML = tabs.map((t, i) =>
-    `<button class="chip ${i === 0 ? "on" : ""}" data-t="${t.id}">${t.label}<span class="c" id="q${t.id}" style="display:none"></span></button>`).join("");
-  $("tabs").onclick = e => {
-    const b = e.target.closest("button"); if (!b) return;
-    [...$("tabs").children].forEach(x => x.classList.toggle("on", x === b));
-    ["Assist", "Browse", "Approve", "Add", "Users"].forEach(id => { const el = $("tab" + id); if (el) el.style.display = (id === b.dataset.t ? "block" : "none"); });
-    if (b.dataset.t === "Approve") loadQueue();
-    if (b.dataset.t === "Browse") loadBrowse();
-    if (b.dataset.t === "Users") loadUsers();
+  $("nav").innerHTML = mySections().map(x => `
+    <button data-t="${x.id}">
+      <span class="em">${x.icon}</span>${x.title}
+      ${x.id === "Approve" ? `<span class="cnt" id="qApprove" style="display:none"></span>` : ""}
+    </button>`).join("");
+  $("nav").onclick = e => {
+    const b = e.target.closest("button[data-t]"); if (b) showSection(b.dataset.t);
   };
-  if (tabs.length === 1) $("tabs").style.display = "none";
+  showSection("Assist");
+}
+
+function showSection(id) {
+  current = id;
+  SECTIONS.forEach(x => { const el = $("tab" + x.id); if (el) el.style.display = (x.id === id ? "block" : "none"); });
+  [...$("nav").children].forEach(b => b.classList.toggle("on", b.dataset.t === id));
+  const sec = SECTIONS.find(x => x.id === id);
+  $("sectionTitle").innerHTML = `<span class="tt">${sec.icon} ${sec.title}</span><span class="ss">${sec.sub}</span>`;
+  if (id === "Approve") loadQueue();
+  if (id === "Browse") loadBrowse();
 }
 
 // ---------- עוזר התשובות ----------
@@ -295,7 +308,10 @@ function drawBrowse() {
     if (q && !(r.question + " " + r.alt + " " + r.answer).toLowerCase().includes(q)) return false;
     return true;
   });
-  $("bCount").textContent = `${list.length} תשובות`;
+  const by = {};
+  BROWSE.forEach(r => { by[r.status] = (by[r.status] || 0) + 1; });
+  const summary = Object.entries(by).map(([k, v]) => `${k}: ${v}`).join(" · ");
+  $("bCount").textContent = `מוצגות ${list.length} מתוך ${BROWSE.length} · ${summary}`;
   $("bList").innerHTML = list.map(r => `<div class="panel" style="padding:14px 16px" data-id="${esc(r.id)}">
       <div class="acts" style="justify-content:space-between">
         <div style="font-size:15px;font-weight:600">${esc(r.question)}</div>
@@ -452,8 +468,7 @@ $("notifs").addEventListener("click", async e => {
   const r = await api("/api/record", { id: b.dataset.ref });
   if (r.error) return toast(r.error);
   $("notifs").style.display = "none";
-  [...$("tabs").children].forEach((x, i) => x.classList.toggle("on", i === 0));
-  ["Assist", "Browse", "Approve", "Add", "Users"].forEach(id => { const el = $("tab" + id); if (el) el.style.display = (id === "Assist" ? "block" : "none"); });
+  showSection("Assist");
   lastMsg = r.question || "";
   renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
   window.scrollTo({ top: 0, behavior: "smooth" });
