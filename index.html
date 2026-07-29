@@ -71,7 +71,15 @@
   </div>
 
   <!-- לשונית אישורים -->
-  <div id="tabApprove" style="display:none"><div id="queue"></div></div>
+  <div id="tabApprove" style="display:none">
+    <div class="chips" id="qFilter" style="margin-top:14px">
+      <button class="chip on" data-v="ממתין לאישור">ממתין לאישור</button>
+      <button class="chip" data-v="טיוטה">טיוטות</button>
+      <button class="chip" data-v="הוחזר לטיפול">הוחזרו לטיפול</button>
+      <button class="chip" data-v="ממתין לניסוח">ממתין לניסוח</button>
+    </div>
+    <div id="queue"></div>
+  </div>
 
   <!-- לשונית מאגר התשובות -->
   <div id="tabBrowse" style="display:none">

@@ -7,7 +7,7 @@
 // ============================================================
 
 import { appendRow, nextId, addNotification } from "../lib/sheets.js";
-import { requireUser } from "../lib/users.js";
+import { requireUser, adminNames } from "../lib/users.js";
 import { readBody, send } from "../lib/http.js";
 
 export default async function handler(req, res) {
@@ -17,11 +17,14 @@ export default async function handler(req, res) {
     const by = me.name;
 
     if (b.kind === "objection") {
-      await addNotification({
-        to: "Ron", type: "השגה",
-        text: `${by} מעירה על ${b.refId}: ${b.note || ""}${b.draft ? "\nהצעה: " + b.draft : ""}`,
-        ref: b.refId || "",
-      });
+      const admins = await adminNames();
+      for (const a of admins) {
+        await addNotification({
+          to: a, type: "השגה",
+          text: `${by} מעירה על ${b.refId}: ${b.note || ""}${b.draft ? "\nהצעה: " + b.draft : ""}`,
+          ref: b.refId || "",
+        });
+      }
       return send(res, 200, { ok: true });
     }
 
@@ -58,7 +61,9 @@ export default async function handler(req, res) {
       "סטטוס": "ממתין לאישור",
       "סוג": "מענה",
     });
-    await addNotification({ to: "Ron", type: "תשובה חדשה", text: `${by} שלחה לאישור: ${b.question || id}`, ref: id });
+    for (const a of await adminNames()) {
+      await addNotification({ to: a, type: "תשובה חדשה", text: `${by} שלחה לאישור: ${b.question || id}`, ref: id });
+    }
     return send(res, 200, { ok: true, id });
   } catch (e) {
     return send(res, 500, { error: String(e.message || e) });

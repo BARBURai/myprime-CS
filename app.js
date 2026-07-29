@@ -182,23 +182,43 @@ function submit(payload) {
 
 // ---------- אישורים ----------
 let editingApproval = false; // נדלק ברגע שמתחילים לערוך תשובה, כדי שרענון לא ימחק
+let queueStatus = "ממתין לאישור";
+
+// מתג הסטטוס בתור האישורים
+if ($("qFilter")) $("qFilter").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...$("qFilter").children].forEach(x => x.classList.toggle("on", x === b));
+  queueStatus = b.dataset.v; queue = []; qi = 0; editingApproval = false;
+  loadQueue();
+});
 
 async function loadQueue(silent) {
-  const r = await api("/api/approve", { action: "list" });
+  const r = await api("/api/approve", { action: "list", statuses: [queueStatus] });
+  // מספרים על כל כפתור סטטוס
+  if (r.counts && $("qFilter")) {
+    [...$("qFilter").children].forEach(b => {
+      const n = r.counts[b.dataset.v] || 0;
+      b.textContent = b.textContent.replace(/\s*\(\d+\)$/, "") + ` (${n})`;
+    });
+  }
   const next = r.pending || [];
+  const waiting = (r.counts && r.counts["ממתין לאישור"]) || 0;
   const badge = $("qApprove");
-  if (badge) { badge.textContent = next.length; badge.style.display = next.length ? "inline" : "none"; }
+  if (badge) { badge.textContent = waiting; badge.style.display = waiting ? "inline" : "none"; }
   // ברענון אוטומטי: לא מציירים מחדש בזמן עריכה, כדי לא לאבד טקסט
   if (silent && (editingApproval || ["ft", "fq", "fa"].includes(document.activeElement?.id))) { queue = queue.length ? queue : next; return; }
   queue = next; qi = 0;
   drawQueue();
 }
 function drawQueue() {
-  if (qi >= queue.length) { $("queue").innerHTML = `<div class="empty">אין פריטים לאישור 🌷</div>`; return; }
+  if (qi >= queue.length) {
+    $("queue").innerHTML = `<div class="empty">אין פריטים בסטטוס «${esc(queueStatus)}» 🌷</div>`;
+    return;
+  }
   const it = queue[qi];
   $("queue").innerHTML = `<div class="panel">
     <div class="acts" style="margin-bottom:8px">
-      <span class="badge warn">ממתין לאישור · ${qi + 1} מתוך ${queue.length}</span>
+      <span class="badge warn">${esc(queueStatus)} · ${qi + 1} מתוך ${queue.length}</span>
       <span class="meta">· ${esc(it.category || "")} · ${esc(it.customerType || "")} · הכינה: ${esc(it.source || "")}</span>
     </div>
     <label class="lbl">השאלה המרכזית · קצרה, כדי שתימצא בפעם הבאה</label>
@@ -226,6 +246,14 @@ function qAct(action, extra) {
     .then(() => { toast(action === "approve" ? "אושר ועלה לאוויר" : "הוחזר"); editingApproval = false; qi++; drawQueue(); })
     .catch(() => toast("שגיאה"));
 }
+
+if ($("qMode")) $("qMode").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+  includeDrafts = !!b.dataset.v;
+  queue = []; qi = 0; editingApproval = false;
+  loadQueue();
+});
 
 // ---------- ניהול משתמשים ----------
 async function loadUsers() {

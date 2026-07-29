@@ -17,13 +17,17 @@ export default async function handler(req, res) {
 
     if (b0.action === "list") {
       const { records } = await readAll();
-      const pending = records.filter(r => r["סטטוס"] === "ממתין לאישור").map(r => ({
+      const wanted = (Array.isArray(b0.statuses) && b0.statuses.length)
+        ? b0.statuses : ["ממתין לאישור"];
+      const counts = {};
+      records.forEach(r => { const st = r["סטטוס"]; if (st) counts[st] = (counts[st] || 0) + 1; });
+      const pending = records.filter(r => wanted.includes(r["סטטוס"])).map(r => ({
         id: r["מזהה"], question: r["שאלה מרכזית"], alt: r["ניסוחים חלופיים"] || "",
         text: (r["נוסח סופי / תיקון"] || r["תשובה (קול ענת)"] || ""),
         category: r["קטגוריה"], customerType: r["סוג לקוחה"],
-        health: r["בריאותי"] === "כן", source: r["מקור"],
+        health: r["בריאותי"] === "כן", source: r["מקור"], status: r["סטטוס"],
       }));
-      return send(res, 200, { pending });
+      return send(res, 200, { pending, counts });
     }
 
     const b = b0;
