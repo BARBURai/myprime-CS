@@ -11,6 +11,7 @@ const esc = s => (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", 
 const SKEY = "myprime_cs_user";
 
 let me = null;               // {name, email, role, code}
+let NOTIFS = [];             // ההתראות שטרם נקראו
 let scope = "all", context = {}, lastMsg = "";
 let queue = [], qi = 0;
 
@@ -679,24 +680,53 @@ async function poll() {
     const r = await fetch(`/api/notifications?to=${encodeURIComponent(me.name)}`).then(r => r.json());
     const items = r.items || [];
     $("bc").textContent = items.length; $("bc").style.display = items.length ? "inline" : "none";
+    NOTIFS = items;
     $("notifs").innerHTML = items.length
-      ? items.map(n => `<div class="notif"><b>${esc(n.type)}</b><div class="t">${esc(n.text)}</div>
-          ${n.ref ? `<div class="acts" style="margin-top:8px"><button class="btn soft" data-ref="${esc(n.ref)}" data-type="${esc(n.type)}" data-note="${esc(n.text)}" data-from="${esc(n.from || "")}">${n.type === "השגה" ? "בדיקת ההשגה" : "צפייה בתשובה"}</button></div>` : ""}
+      ? `<div class="acts" style="margin:10px 0 4px"><button class="btn soft" id="readAll">סימון הכל כנקרא</button></div>` +
+        items.map(n => `<div class="notif" data-row="${n.row}"><b>${esc(n.type)}</b><div class="t">${esc(n.text)}</div>
+          <div class="acts" style="margin-top:8px">
+        ${n.ref ? `<button class="btn soft" data-ref="${esc(n.ref)}" data-type="${esc(n.type)}" data-note="${esc(n.text)}" data-from="${esc(n.from || "")}" data-row="${n.row}">${n.type === "השגה" ? "בדיקת ההשגה" : "צפייה בתשובה"}</button>` : ""}
+        <button class="btn soft" data-read="${n.row}">סימון כנקרא</button>
+      </div>
         </div>`).join("")
       : `<div class="empty">אין התראות</div>`;
     if (me.role === "מנהל") loadQueue(true);
   } catch {}
 }
 
+/** סימון התראות כנקראו והסרתן מהפעמון */
+async function markNotifsRead(rows) {
+  if (!rows.length) return;
+  await fetch("/api/notifications", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows }),
+  }).catch(() => null);
+  poll();
+}
+
 // פתיחת תשובה מתוך התראה
 $("notifs").addEventListener("click", async e => {
+  if (e.target.closest("#readAll")) {
+    await markNotifsRead(NOTIFS.map(n => n.row).filter(Boolean));
+    toast("סומנו כנקראו");
+    return;
+  }
+  const readBtn = e.target.closest("button[data-read]");
+  if (readBtn) { await markNotifsRead([Number(readBtn.dataset.read)]); return; }
+
   const b = e.target.closest("button[data-ref]"); if (!b) return;
   const r = await api("/api/record", { id: b.dataset.ref });
   if (r.error) return toast(r.error);
   $("notifs").style.display = "none";
+  if (b.dataset.row) markNotifsRead([Number(b.dataset.row)]);
   showSection("Assist");
   lastMsg = r.question || "";
-  if (b.dataset.type === "השגה") renderObjection(r, b.dataset.note || "", b.dataset.from || "");
+  if (b.dataset.type === "השגה") {
+    const raw = b.dataset.note || "";
+    // אם עמודת "מאת" ריקה, מחלצים את השם מתחילת הטקסט: "טלי מעירה על ..."
+    const guess = (raw.match(/^(\S+)\s+מעיר/) || [])[1] || "";
+    renderObjection(r, raw, b.dataset.from || guess);
+  }
   else renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
