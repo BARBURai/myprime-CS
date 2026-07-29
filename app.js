@@ -108,9 +108,13 @@ function renderAssist(res) {
     const body = personalize(res.text, $("cname").value, me.name);
     box.innerHTML = `<div class="panel">
       <span class="badge ok">תשובה מאושרת</span>
-      <div class="answer">${esc(body)}</div>
+      <div class="lbl" style="margin-top:12px">השאלה במאגר</div>
+      <div style="font-size:15px;font-weight:500">${esc(res.matchedQuestion || lastMsg)}</div>
+      ${res.near ? `<div class="hint">נמצאה בהתאמה קרובה. כדאי לוודא שהתשובה מתאימה.</div>` : ""}
+      <div class="lbl" style="margin-top:14px">התשובה המאושרת · מוכנה לשליחה</div>
+      <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px">${esc(body)}</div>
       <div class="acts">
-        <button class="btn" id="copy">העתקת התשובה</button>
+        <button class="btn" id="copy">העתקה ושליחה ללקוחה</button>
         <button class="btn soft" id="obj">יש לי השגה</button>
         <span class="meta">· ${esc(res.category || "")}</span>
       </div><div id="objArea"></div></div>`;
@@ -127,7 +131,11 @@ function renderAssist(res) {
   const f = res.fields || {};
   box.innerHTML = `<div class="panel">
     <span class="badge warn">הצעת ניסוח · לאישור</span>
-    <div class="lbl" style="margin-top:10px">אפשר לערוך לפני השליחה</div>
+    <label class="lbl" style="margin-top:12px">השאלה המרכזית · קצרה, כדי שתימצא בפעם הבאה</label>
+    <input type="text" id="q2" value="${esc(res.question || "")}"/>
+    <label class="lbl" style="margin-top:12px">ניסוחים חלופיים (מופרדים בפסיק)</label>
+    <input type="text" id="alt2" value="${esc((res.altPhrasings || []).join(", "))}"/>
+    <label class="lbl" style="margin-top:12px">התשובה · אפשר לערוך</label>
     <textarea id="draft">${esc(res.draft || "")}</textarea>
     <label class="lbl" style="margin-top:12px">קטגוריה</label>
     <input type="text" id="cat" value="${esc(f.category || "")}"/>
@@ -139,7 +147,10 @@ function renderAssist(res) {
     <div class="acts" style="margin-top:16px"><button class="btn" id="send">שליחה לאישור</button></div></div>`;
   $("ct").addEventListener("click", e => { const b = e.target.closest("button"); if (b) b.classList.toggle("on"); });
   $("send").onclick = () => submit({
-    kind: "new", question: lastMsg, draft: $("draft").value.trim(),
+    kind: "new",
+    question: ($("q2").value.trim() || lastMsg).slice(0, 120),
+    altPhrasings: $("alt2").value.split(",").map(x => x.trim()).filter(Boolean),
+    draft: $("draft").value.trim(),
     fields: { category: $("cat").value.trim(),
       customerTypes: [...$("ct").querySelectorAll(".on")].map(x => x.dataset.v), health: false },
   });
@@ -162,7 +173,7 @@ async function loadQueue(silent) {
   const badge = $("qApprove");
   if (badge) { badge.textContent = next.length; badge.style.display = next.length ? "inline" : "none"; }
   // ברענון אוטומטי: לא מציירים מחדש בזמן עריכה, כדי לא לאבד טקסט
-  if (silent && (editingApproval || document.activeElement === $("ft"))) { queue = queue.length ? queue : next; return; }
+  if (silent && (editingApproval || ["ft", "fq", "fa"].includes(document.activeElement?.id))) { queue = queue.length ? queue : next; return; }
   queue = next; qi = 0;
   drawQueue();
 }
@@ -174,17 +185,23 @@ function drawQueue() {
       <span class="badge warn">ממתין לאישור · ${qi + 1} מתוך ${queue.length}</span>
       <span class="meta">· ${esc(it.category || "")} · ${esc(it.customerType || "")} · הכינה: ${esc(it.source || "")}</span>
     </div>
-    <div class="lbl">השאלה</div>
-    <div style="font-size:16px;font-weight:500;margin-bottom:12px">${esc(it.question || "")}</div>
-    <div class="lbl">התשובה (אפשר לערוך)</div>
+    <label class="lbl">השאלה המרכזית · קצרה, כדי שתימצא בפעם הבאה</label>
+    <input type="text" id="fq" value="${esc(it.question || "")}"/>
+    <label class="lbl" style="margin-top:10px">ניסוחים חלופיים (מופרדים בפסיק)</label>
+    <input type="text" id="fa" value="${esc((it.alt || "").split(";").map(x => x.trim()).filter(Boolean).join(", "))}"/>
+    <label class="lbl" style="margin-top:10px">התשובה · אפשר לערוך</label>
     <textarea id="ft" style="min-height:150px">${esc(it.text || "")}</textarea>
     <div class="row" style="margin-top:14px">
       <button class="btn" id="ok">אישור · יעלה לאוויר</button>
       <button class="btn soft" id="ret">החזרה לטלי</button>
     </div></div>`;
   editingApproval = false;
-  $("ft").addEventListener("input", () => { editingApproval = true; });
-  $("ok").onclick = () => qAct("approve", { finalText: $("ft").value.trim() });
+  ["ft", "fq", "fa"].forEach(id => $(id) && $(id).addEventListener("input", () => { editingApproval = true; }));
+  $("ok").onclick = () => qAct("approve", {
+    finalText: $("ft").value.trim(),
+    question: $("fq").value.trim(),
+    altPhrasings: $("fa").value.split(",").map(x => x.trim()).filter(Boolean).join("; "),
+  });
   $("ret").onclick = () => qAct("return", { note: prompt("הערה לטלי (לא חובה):") || "" });
 }
 function qAct(action, extra) {

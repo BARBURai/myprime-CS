@@ -4,7 +4,7 @@
 // ============================================================
 
 import { readAll } from "../lib/sheets.js";
-import { exactMatch, pool, bodyOf } from "../lib/engine.js";
+import { exactMatch, fuzzyMatch, pool, bodyOf } from "../lib/engine.js";
 import { assist } from "../lib/ai.js";
 import { requireUser } from "../lib/users.js";
 import { readBody, send } from "../lib/http.js";
@@ -23,9 +23,21 @@ export default async function handler(req, res) {
     if (m) return send(res, 200, {
       mode: "answer", id: m["מזהה"], text: bodyOf(m),
       category: m["קטגוריה"], health: m["בריאותי"] === "כן",
+      matchedQuestion: m["שאלה מרכזית"],
     });
 
-    // --- שלב 2: מנוע חושב (Sonnet) ---
+    // --- שלב 2: התאמה קרובה, עדיין בלי טוקנים ---
+    const near = fuzzyMatch(records, message, scope);
+    if (near) {
+      const r = near.rec;
+      return send(res, 200, {
+        mode: "answer", id: r["מזהה"], text: bodyOf(r),
+        category: r["קטגוריה"], health: r["בריאותי"] === "כן",
+        matchedQuestion: r["שאלה מרכזית"], near: true,
+      });
+    }
+
+    // --- שלב 3: מנוע חושב (Sonnet) ---
     const candidates = pool(records, scope).map(r => ({
       id: r["מזהה"], q: r["שאלה מרכזית"], types: r["סוג לקוחה"], cat: r["קטגוריה"],
     }));
@@ -36,10 +48,15 @@ export default async function handler(req, res) {
       if (rec) return send(res, 200, {
         mode: "answer", id: rec["מזהה"], text: bodyOf(rec),
         category: rec["קטגוריה"], health: rec["בריאותי"] === "כן",
+        matchedQuestion: rec["שאלה מרכזית"],
       });
     }
     if (out.action === "ask") return send(res, 200, { mode: "ask", questions: out.questions || [] });
-    return send(res, 200, { mode: "draft", draft: out.draft || "", fields: out.fields || {} });
+    return send(res, 200, {
+      mode: "draft", draft: out.draft || "",
+      question: out.question || "", altPhrasings: out.altPhrasings || [],
+      fields: out.fields || {},
+    });
   } catch (e) {
     return send(res, 500, { error: String(e.message || e) });
   }
