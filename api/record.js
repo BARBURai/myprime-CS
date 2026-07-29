@@ -18,8 +18,10 @@ export default async function handler(req, res) {
     return send(res, 200, {
       id: r["מזהה"],
       question: r["שאלה מרכזית"],
+      alt: r["ניסוחים חלופיים"] || "",
       text: bodyOf(r),
       category: r["קטגוריה"],
+      customerType: r["סוג לקוחה"] || "",
       status: r["סטטוס"],
     });
   } catch (e) {

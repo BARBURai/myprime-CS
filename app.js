@@ -137,9 +137,21 @@ function renderAssist(res) {
     $("copy").onclick = () => copy(body);
     $("obj").onclick = () => {
       const a = $("objArea"); if (a.innerHTML) { a.innerHTML = ""; return; }
-      a.innerHTML = `<textarea id="objNote" placeholder="מה לא מדויק / הצעת שיפור…" style="margin-top:10px"></textarea>
-        <div class="acts" style="margin-top:8px"><button class="btn ghost" id="objSend">שליחה לאישור</button></div>`;
-      $("objSend").onclick = () => submit({ kind: "objection", refId: res.id, note: $("objNote").value.trim() });
+      a.innerHTML = `
+        <label class="lbl" style="margin-top:12px">מה לא מדויק</label>
+        <textarea id="objNote" placeholder="בקצרה, מה הבעיה בתשובה הנוכחית…"></textarea>
+        <label class="lbl" style="margin-top:10px">הצעת נוסח מתוקן (לא חובה)</label>
+        <textarea id="objDraft" style="min-height:120px">${esc(res.text || "")}</textarea>
+        <div class="hint">אפשר לערוך ישירות את הנוסח כאן. רון יראה השוואה בין הקיים למוצע.</div>
+        <div class="acts" style="margin-top:10px"><button class="btn ghost" id="objSend">שליחה לאישור</button></div>`;
+      $("objSend").onclick = () => {
+        const proposed = $("objDraft").value.trim();
+        submit({
+          kind: "objection", refId: res.id,
+          note: $("objNote").value.trim(),
+          draft: proposed && proposed !== (res.text || "").trim() ? proposed : "",
+        });
+      };
     };
     return;
   }
@@ -295,6 +307,56 @@ $("uAdd").onclick = async () => {
   loadUsers();
 };
 
+// ---------- בדיקת השגה: הקיים מול המוצע ----------
+function renderObjection(rec, rawText) {
+  // הטקסט שנשמר בהתראה: "טלי מעירה על MP-XXX: <הערה>" ואחריו אולי "הצעה: <נוסח>"
+  const idx = rawText.indexOf("הצעה:");
+  const head = idx >= 0 ? rawText.slice(0, idx) : rawText;
+  const proposed = idx >= 0 ? rawText.slice(idx + 5).trim() : "";
+  const note = (head.split(":").slice(1).join(":") || head).trim();
+
+  $("result").innerHTML = `<div class="panel">
+    <span class="badge warn">השגה לבדיקה</span>
+    <div class="lbl" style="margin-top:12px">השאלה המקורית במאגר</div>
+    <div style="font-size:15.5px;font-weight:600">${esc(rec.question || "")}</div>
+    <div class="meta" style="margin-top:5px">${esc(rec.id)} · ${esc(rec.category || "ללא קטגוריה")} · ${esc(rec.customerType || "כל הסוגים")}</div>
+    ${rec.alt ? `<div class="meta" style="margin-top:5px">ניסוחים חלופיים: ${esc(rec.alt.split(";").map(x => x.trim()).filter(Boolean).join(" · "))}</div>` : ""}
+
+    <div class="lbl" style="margin-top:14px">מה שנכתב בהשגה</div>
+    <div style="background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:11px 13px;font-size:14.5px;white-space:pre-wrap">${esc(note || "בלי הערה")}</div>
+
+    <div class="lbl" style="margin-top:16px">הנוסח הקיים</div>
+    <div class="answer" style="background:var(--bg);border-radius:12px;padding:11px 13px;font-size:14.5px">${esc(rec.text || "")}</div>
+
+    ${proposed ? `
+      <div class="lbl" style="margin-top:6px">הנוסח המוצע · אפשר לערוך</div>
+      <textarea id="objNew" style="min-height:150px">${esc(proposed)}</textarea>
+      <div class="acts" style="margin-top:12px">
+        <button class="btn" id="objApprove">אישור הנוסח המוצע</button>
+        <button class="btn soft" id="objKeep">להשאיר כמו שהוא</button>
+      </div>`
+    : `
+      <div class="lbl" style="margin-top:6px">עריכת הנוסח</div>
+      <textarea id="objNew" style="min-height:150px">${esc(rec.text || "")}</textarea>
+      <div class="acts" style="margin-top:12px">
+        <button class="btn" id="objApprove">שמירת הנוסח</button>
+        <button class="btn soft" id="objKeep">להשאיר כמו שהוא</button>
+      </div>`}
+  </div>`;
+
+  $("objApprove").onclick = async () => {
+    const r = await api("/api/records", { action: "update", id: rec.id, answer: $("objNew").value.trim() });
+    if (r.error) return toast("שגיאה: " + r.error);
+    BROWSE = [];
+    toast("הנוסח עודכן במאגר");
+    renderAssist({ mode: "answer", id: rec.id, text: $("objNew").value.trim(), category: rec.category, matchedQuestion: rec.question });
+  };
+  $("objKeep").onclick = () => {
+    toast("נשאר ללא שינוי");
+    renderAssist({ mode: "answer", id: rec.id, text: rec.text, category: rec.category, matchedQuestion: rec.question });
+  };
+}
+
 // ---------- מאגר התשובות ----------
 let BROWSE = [], canEdit = false;
 let bCat = "", bType = "", bStatus = "";
@@ -378,11 +440,23 @@ $("bList").addEventListener("click", async e => {
     <label class="lbl" style="margin-top:10px">סוג לקוחה</label>
     <div class="chips ect">${["לקוחה קיימת", "עדיין לא לקוחה", "שתיהן"].map(o =>
       `<button class="chip ${rec.customerType.includes(o) ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
-    <div class="acts" style="margin-top:14px"><button class="btn" data-a="save">שמירה</button></div>`;
+    <label class="lbl" style="margin-top:10px">סטטוס</label>
+    <div class="chips est">${["מאושר", "טיוטה", "לא לפרסם"].map(o =>
+      `<button class="chip ${rec.status === o ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
+    <div class="acts" style="margin-top:14px">
+      <button class="btn" data-a="approve">שמירה ואישור</button>
+      <button class="btn soft" data-a="save">שמירה בלבד</button>
+    </div>`;
   area.querySelector(".ect").addEventListener("click", ev => {
     const b = ev.target.closest("button"); if (b) b.classList.toggle("on");
   });
-  area.querySelector('[data-a="save"]').onclick = async () => {
+  area.querySelector(".est").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    [...ev.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+  });
+
+  const doSave = async (forceApprove) => {
+    const chosen = area.querySelector(".est .on")?.dataset.v || rec.status;
     const payload = {
       action: "update", id,
       question: area.querySelector(".eq").value.trim(),
@@ -390,15 +464,19 @@ $("bList").addEventListener("click", async e => {
       answer: area.querySelector(".eb").value.trim(),
       category: area.querySelector(".ec").value.trim(),
       customerType: [...area.querySelectorAll(".ect .on")].map(x => x.dataset.v).join("; "),
+      status: forceApprove ? "מאושר" : chosen,
     };
     const r = await api("/api/records", payload);
     if (r.error) return toast("שגיאה: " + r.error);
     Object.assign(rec, {
       question: payload.question, alt: payload.alt, answer: payload.answer,
-      category: payload.category, customerType: payload.customerType,
+      category: payload.category, customerType: payload.customerType, status: payload.status,
     });
-    toast("נשמר"); drawBrowse();
+    toast(payload.status === "מאושר" ? "נשמר ואושר · עלה לאוויר" : "נשמר · " + payload.status);
+    drawBrowse();
   };
+  area.querySelector('[data-a="approve"]').onclick = () => doSave(true);
+  area.querySelector('[data-a="save"]').onclick = () => doSave(false);
 });
 
 // ---------- פוש: רישום המכשיר לקבלת התראות ----------
@@ -483,7 +561,7 @@ async function poll() {
     $("bc").textContent = items.length; $("bc").style.display = items.length ? "inline" : "none";
     $("notifs").innerHTML = items.length
       ? items.map(n => `<div class="notif"><b>${esc(n.type)}</b><div class="t">${esc(n.text)}</div>
-          ${n.ref ? `<div class="acts" style="margin-top:8px"><button class="btn soft" data-ref="${esc(n.ref)}">צפייה בתשובה</button></div>` : ""}
+          ${n.ref ? `<div class="acts" style="margin-top:8px"><button class="btn soft" data-ref="${esc(n.ref)}" data-type="${esc(n.type)}" data-note="${esc(n.text)}">${n.type === "השגה" ? "בדיקת ההשגה" : "צפייה בתשובה"}</button></div>` : ""}
         </div>`).join("")
       : `<div class="empty">אין התראות</div>`;
     if (me.role === "מנהל") loadQueue(true);
@@ -498,7 +576,8 @@ $("notifs").addEventListener("click", async e => {
   $("notifs").style.display = "none";
   showSection("Assist");
   lastMsg = r.question || "";
-  renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
+  if (b.dataset.type === "השגה") renderObjection(r, b.dataset.note || "");
+  else renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
 
