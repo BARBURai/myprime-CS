@@ -154,11 +154,16 @@ function submit(payload) {
 }
 
 // ---------- אישורים ----------
-async function loadQueue() {
+let editingApproval = false; // נדלק ברגע שמתחילים לערוך תשובה, כדי שרענון לא ימחק
+
+async function loadQueue(silent) {
   const r = await api("/api/approve", { action: "list" });
-  queue = r.pending || []; qi = 0;
+  const next = r.pending || [];
   const badge = $("qApprove");
-  if (badge) { badge.textContent = queue.length; badge.style.display = queue.length ? "inline" : "none"; }
+  if (badge) { badge.textContent = next.length; badge.style.display = next.length ? "inline" : "none"; }
+  // ברענון אוטומטי: לא מציירים מחדש בזמן עריכה, כדי לא לאבד טקסט
+  if (silent && (editingApproval || document.activeElement === $("ft"))) { queue = queue.length ? queue : next; return; }
+  queue = next; qi = 0;
   drawQueue();
 }
 function drawQueue() {
@@ -177,13 +182,15 @@ function drawQueue() {
       <button class="btn" id="ok">אישור · יעלה לאוויר</button>
       <button class="btn soft" id="ret">החזרה לטלי</button>
     </div></div>`;
+  editingApproval = false;
+  $("ft").addEventListener("input", () => { editingApproval = true; });
   $("ok").onclick = () => qAct("approve", { finalText: $("ft").value.trim() });
   $("ret").onclick = () => qAct("return", { note: prompt("הערה לטלי (לא חובה):") || "" });
 }
 function qAct(action, extra) {
   const it = queue[qi];
   api("/api/approve", { action, id: it.id, to: it.source || "טלי", ...extra })
-    .then(() => { toast(action === "approve" ? "אושר ועלה לאוויר" : "הוחזר"); qi++; drawQueue(); })
+    .then(() => { toast(action === "approve" ? "אושר ועלה לאוויר" : "הוחזר"); editingApproval = false; qi++; drawQueue(); })
     .catch(() => toast("שגיאה"));
 }
 
@@ -267,7 +274,7 @@ async function poll() {
     $("notifs").innerHTML = items.length
       ? items.map(n => `<div class="notif"><b>${esc(n.type)}</b><div class="t">${esc(n.text)}</div></div>`).join("")
       : `<div class="empty">אין התראות</div>`;
-    if (me.role === "מנהל") loadQueue();
+    if (me.role === "מנהל") loadQueue(true);
   } catch {}
 }
 
