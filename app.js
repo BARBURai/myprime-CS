@@ -289,11 +289,26 @@ async function poll() {
     const items = r.items || [];
     $("bc").textContent = items.length; $("bc").style.display = items.length ? "inline" : "none";
     $("notifs").innerHTML = items.length
-      ? items.map(n => `<div class="notif"><b>${esc(n.type)}</b><div class="t">${esc(n.text)}</div></div>`).join("")
+      ? items.map(n => `<div class="notif"><b>${esc(n.type)}</b><div class="t">${esc(n.text)}</div>
+          ${n.ref ? `<div class="acts" style="margin-top:8px"><button class="btn soft" data-ref="${esc(n.ref)}">צפייה בתשובה</button></div>` : ""}
+        </div>`).join("")
       : `<div class="empty">אין התראות</div>`;
     if (me.role === "מנהל") loadQueue(true);
   } catch {}
 }
+
+// פתיחת תשובה מתוך התראה
+$("notifs").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-ref]"); if (!b) return;
+  const r = await api("/api/record", { id: b.dataset.ref });
+  if (r.error) return toast(r.error);
+  $("notifs").style.display = "none";
+  [...$("tabs").children].forEach((x, i) => x.classList.toggle("on", i === 0));
+  ["Assist", "Approve", "Add", "Users"].forEach(id => { const el = $("tab" + id); if (el) el.style.display = (id === "Assist" ? "block" : "none"); });
+  lastMsg = r.question || "";
+  renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
 
 // ---------- שחזור כניסה קודמת ----------
 try {
