@@ -129,6 +129,7 @@ function renderAssist(res) {
       <div class="lbl" style="margin-top:12px">השאלה במאגר</div>
       <div style="font-size:15px;font-weight:500">${esc(res.matchedQuestion || lastMsg)}</div>
       ${res.near ? `<div class="hint">נמצאה בהתאמה קרובה. כדאי לוודא שהתשובה מתאימה.</div>` : ""}
+      ${res.justApproved ? `<div style="background:var(--ok-soft);color:var(--ok);border-radius:12px;padding:11px 13px;margin-top:14px;font-size:14px;line-height:1.7">התשובה אושרה. כדאי לקרוא אותה לפני השליחה, כי ייתכן שהנוסח שונה ממה שנשלח לאישור.<br>אם משהו לא מדויק, אפשר לשלוח השגה. אם הכול בסדר, אפשר להעתיק ולשלוח ללקוחה.</div>` : ""}
       <div class="lbl" style="margin-top:14px">התשובה המאושרת · מוכנה לשליחה</div>
       <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px">${esc(body)}</div>
       <div class="acts">
@@ -693,7 +694,8 @@ async function openFromUrl() {
   if (r.error) return;
   lastMsg = r.question || "";
   setAssistInput(false);
-  renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
+  renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category,
+    matchedQuestion: r.question, justApproved: true });
   addBackBar("צפייה בתשובה מתוך התראה");
 }
 
@@ -811,7 +813,8 @@ $("notifs").addEventListener("click", async e => {
     renderObjection(r, raw, b.dataset.from || guess);
     addBackBar("צפייה בהשגה מתוך התראה");
   } else {
-    renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
+    renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category,
+      matchedQuestion: r.question, justApproved: b.dataset.type === "אושר" });
     addBackBar("צפייה בתשובה מתוך התראה");
   }
   window.scrollTo({ top: 0, behavior: "smooth" });
