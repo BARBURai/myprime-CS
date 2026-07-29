@@ -83,6 +83,7 @@ function buildTabs() {
 
 function showSection(id) {
   current = id;
+  if (id === "Assist") setAssistInput(true);
   SECTIONS.forEach(x => { const el = $("tab" + x.id); if (el) el.style.display = (x.id === id ? "block" : "none"); });
   [...$("nav").children].forEach(b => b.classList.toggle("on", b.dataset.t === id));
   const sec = SECTIONS.find(x => x.id === id);
@@ -256,7 +257,11 @@ function drawQueue() {
 function qAct(action, extra) {
   const it = queue[qi];
   api("/api/approve", { action, id: it.id, to: it.source || "טלי", ...extra })
-    .then(() => { toast(action === "approve" ? "אושר ועלה לאוויר" : "הוחזר"); editingApproval = false; qi++; drawQueue(); })
+    .then(() => {
+      toast(action === "approve" ? "אושר ועלה לאוויר" : "הוחזר");
+      clearNotifsFor(it.id);
+      editingApproval = false; qi++; drawQueue();
+    })
     .catch(() => toast("שגיאה"));
 }
 
@@ -464,6 +469,7 @@ function wireObjectionButtons(rec, from, getText) {
     });
     if (r.error) return toast("שגיאה: " + r.error);
     BROWSE = [];
+    clearNotifsFor(rec.id);
     toast(from ? `הנוסח עודכן · ${from} קיבלה עדכון` : "הנוסח עודכן במאגר");
     renderAssist({ mode: "answer", id: rec.id, text, category: rec.category, matchedQuestion: rec.question });
   };
@@ -473,6 +479,7 @@ function wireObjectionButtons(rec, from, getText) {
       notify: from || "", decision: "kept", reply: ($("objReply")?.value || "").trim(),
     });
     if (r.error) return toast("שגיאה: " + r.error);
+    clearNotifsFor(rec.id);
     toast(from ? `${from} קיבלה עדכון שהנוסח נשאר` : "נשאר ללא שינוי");
     renderAssist({ mode: "answer", id: rec.id, text: rec.text, category: rec.category, matchedQuestion: rec.question });
   };
@@ -593,6 +600,7 @@ $("bList").addEventListener("click", async e => {
       question: payload.question, alt: payload.alt, answer: payload.answer,
       category: payload.category, customerType: payload.customerType, status: payload.status,
     });
+    if (payload.status === "מאושר") clearNotifsFor(id);
     toast(payload.status === "מאושר" ? "נשמר ואושר · עלה לאוויר" : "נשמר · " + payload.status);
     drawBrowse();
   };
@@ -640,7 +648,9 @@ async function openFromUrl() {
   const r = await api("/api/record", { id: ref });
   if (r.error) return;
   lastMsg = r.question || "";
+  setAssistInput(false);
   renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
+  addBackBar("צפייה בתשובה מתוך התראה");
 }
 
 // ---------- הוספת תשובה ידנית (מנהל) ----------
@@ -694,6 +704,33 @@ async function poll() {
   } catch {}
 }
 
+/** הצגה או הסתרה של תיבת ההדבקה בעוזר. בצפייה מתוך התראה היא מיותרת. */
+function setAssistInput(visible) {
+  const panel = document.querySelector("#tabAssist > .panel");
+  if (panel) panel.style.display = visible ? "block" : "none";
+}
+
+/** סרגל חזרה שמופיע מעל תשובה שנפתחה מהתראה */
+function addBackBar(label) {
+  const bar = document.createElement("div");
+  bar.className = "acts";
+  bar.style.margin = "0 0 12px";
+  bar.innerHTML = `<button class="btn soft" id="backAssist">→ חזרה לעוזר התשובות</button>
+    <span class="meta">${esc(label)}</span>`;
+  $("result").prepend(bar);
+  $("backAssist").onclick = () => {
+    setAssistInput(true);
+    $("result").innerHTML = "";
+    $("msg").value = "";
+  };
+}
+
+/** ניקוי כל ההתראות שמפנות לרשומה מסוימת */
+function clearNotifsFor(id) {
+  const rows = NOTIFS.filter(n => n.ref === id).map(n => n.row).filter(Boolean);
+  if (rows.length) markNotifsRead(rows);
+}
+
 /** סימון התראות כנקראו והסרתן מהפעמון */
 async function markNotifsRead(rows) {
   if (!rows.length) return;
@@ -721,13 +758,17 @@ $("notifs").addEventListener("click", async e => {
   if (b.dataset.row) markNotifsRead([Number(b.dataset.row)]);
   showSection("Assist");
   lastMsg = r.question || "";
+  setAssistInput(false);
   if (b.dataset.type === "השגה") {
     const raw = b.dataset.note || "";
     // אם עמודת "מאת" ריקה, מחלצים את השם מתחילת הטקסט: "טלי מעירה על ..."
     const guess = (raw.match(/^(\S+)\s+מעיר/) || [])[1] || "";
     renderObjection(r, raw, b.dataset.from || guess);
+    addBackBar("צפייה בהשגה מתוך התראה");
+  } else {
+    renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
+    addBackBar("צפייה בתשובה מתוך התראה");
   }
-  else renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
 
