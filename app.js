@@ -100,7 +100,7 @@ function showSection(id) {
   [...$("nav").children].forEach(b => b.classList.toggle("on", b.dataset.t === id));
   const sec = SECTIONS.find(x => x.id === id);
   $("sectionTitle").innerHTML = `<span class="tt">${sec.icon} ${sec.title}</span><span class="ss">${sec.sub}</span>`;
-  if (id === "Inbox") loadInbox();
+  if (id === "Inbox") { ibBusy = false; loadInbox(); }
   if (id === "Browse") loadBrowse();
 }
 
@@ -429,11 +429,13 @@ function wireObjectionButtons(rec, from, getText, OUT) {
 
 
 // ---------- לטיפולי: כל מה שדורש פעולה ----------
-let INBOX = [], ibDrafts = false;
+let INBOX = [], ibDrafts = false, ibBusy = false;
 
-async function loadInbox() {
+async function loadInbox(silent) {
+  if (ibBusy) return;                       // באמצע טיפול, לא מרעננים
   $("ibWork").innerHTML = "";
-  $("ibList").innerHTML = `<div class="spin">טוען…</div>`;
+  $("ibList").style.display = "block";
+  if (!silent) $("ibList").innerHTML = `<div class="spin">טוען…</div>`;
 
   const statuses = ibDrafts
     ? ["ממתין לאישור", "הוחזר לטיפול", "טיוטה", "ממתין לניסוח"]
@@ -469,6 +471,7 @@ function drawInbox() {
 $("ibList").addEventListener("click", async e => {
   const b = e.target.closest("button[data-i]"); if (!b) return;
   const item = INBOX[Number(b.dataset.i)];
+  ibBusy = true;
   $("ibList").style.display = "none";
   $("ibWork").innerHTML = `<div class="spin">טוען…</div>`;
 
@@ -492,6 +495,7 @@ function prependInboxBack() {
 }
 
 function backToInbox() {
+  ibBusy = false;
   $("ibWork").innerHTML = "";
   $("ibList").style.display = "block";
   loadInbox();
@@ -794,7 +798,7 @@ async function poll() {
       </div>
         </div>`).join("")
       : `<div class="empty">אין התראות</div>`;
-    if (me.role === "מנהל" && current === "Inbox") loadInbox();
+    if (me.role === "מנהל" && current === "Inbox" && !ibBusy) loadInbox(true);
   } catch {}
 }
 
