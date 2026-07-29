@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     const items = (await listNotifications(to))
       .sort((a, b) => (b["מתי"] || "").localeCompare(a["מתי"] || ""))
       .slice(0, 30)
-      .map(r => ({ when: r["מתי"], type: r["סוג"], text: r["טקסט"], ref: r["הפניה"] }));
+      .map(r => ({ when: r["מתי"], type: r["סוג"], text: r["טקסט"], ref: r["הפניה"], from: r["מאת"] || "" }));
     return send(res, 200, { items });
   } catch (e) {
     return send(res, 500, { error: String(e.message || e), items: [] });

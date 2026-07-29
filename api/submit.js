@@ -22,6 +22,7 @@ export default async function handler(req, res) {
         await addNotification({
           to: a, type: "השגה",
           text: `${by} מעירה על ${b.refId}: ${b.note || ""}${b.draft ? "\nהצעה: " + b.draft : ""}`,
+          from: by,
           ref: b.refId || "",
         });
       }

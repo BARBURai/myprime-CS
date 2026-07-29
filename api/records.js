@@ -5,7 +5,7 @@
 //   update -> עדכון רשומה (מנהל בלבד)
 // ============================================================
 
-import { readAll, updateById } from "../lib/sheets.js";
+import { readAll, updateById, addNotification } from "../lib/sheets.js";
 import { bodyOf } from "../lib/engine.js";
 import { requireUser, isAdmin } from "../lib/users.js";
 import { readBody, send } from "../lib/http.js";
@@ -25,7 +25,19 @@ export default async function handler(req, res) {
       if (b.customerType !== undefined) map["סוג לקוחה"] = b.customerType;
       if (b.status !== undefined) map["סטטוס"] = b.status;
       if (b.health !== undefined) map["בריאותי"] = b.health ? "כן" : "";
-      await updateById(b.id, map);
+      if (Object.keys(map).length) await updateById(b.id, map);
+
+      // עדכון חזרה למי שהגישה את ההשגה
+      if (b.notify) {
+        await addNotification({
+          to: b.notify,
+          type: b.decision === "kept" ? "ההשגה נבדקה" : "ההשגה התקבלה",
+          text: b.decision === "kept"
+            ? `${me.name} בדק את ההשגה שלך על ${b.id} והחליט להשאיר את הנוסח הקיים.${b.reply ? " " + b.reply : ""}`
+            : `${me.name} עדכן את הנוסח של ${b.id} בעקבות ההשגה שלך.${b.reply ? " " + b.reply : ""}`,
+          ref: b.id,
+        });
+      }
       return send(res, 200, { ok: true });
     }
 

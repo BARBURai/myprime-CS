@@ -308,7 +308,7 @@ $("uAdd").onclick = async () => {
 };
 
 // ---------- בדיקת השגה: הקיים מול המוצע ----------
-function renderObjection(rec, rawText) {
+function renderObjection(rec, rawText, from) {
   // הטקסט שנשמר בהתראה: "טלי מעירה על MP-XXX: <הערה>" ואחריו אולי "הצעה: <נוסח>"
   const idx = rawText.indexOf("הצעה:");
   const head = idx >= 0 ? rawText.slice(0, idx) : rawText;
@@ -331,6 +331,8 @@ function renderObjection(rec, rawText) {
     ${proposed ? `
       <div class="lbl" style="margin-top:6px">הנוסח המוצע · אפשר לערוך</div>
       <textarea id="objNew" style="min-height:150px">${esc(proposed)}</textarea>
+      <label class="lbl" style="margin-top:10px">הודעה חוזרת${from ? " ל" + esc(from) : ""} (לא חובה)</label>
+      <input type="text" id="objReply" placeholder="מילה קצרה שתצורף לעדכון"/>
       <div class="acts" style="margin-top:12px">
         <button class="btn" id="objApprove">אישור הנוסח המוצע</button>
         <button class="btn soft" id="objKeep">להשאיר כמו שהוא</button>
@@ -338,6 +340,8 @@ function renderObjection(rec, rawText) {
     : `
       <div class="lbl" style="margin-top:6px">עריכת הנוסח</div>
       <textarea id="objNew" style="min-height:150px">${esc(rec.text || "")}</textarea>
+      <label class="lbl" style="margin-top:10px">הודעה חוזרת${from ? " ל" + esc(from) : ""} (לא חובה)</label>
+      <input type="text" id="objReply" placeholder="מילה קצרה שתצורף לעדכון"/>
       <div class="acts" style="margin-top:12px">
         <button class="btn" id="objApprove">שמירת הנוסח</button>
         <button class="btn soft" id="objKeep">להשאיר כמו שהוא</button>
@@ -345,14 +349,22 @@ function renderObjection(rec, rawText) {
   </div>`;
 
   $("objApprove").onclick = async () => {
-    const r = await api("/api/records", { action: "update", id: rec.id, answer: $("objNew").value.trim() });
+    const r = await api("/api/records", {
+      action: "update", id: rec.id, answer: $("objNew").value.trim(),
+      notify: from || "", decision: "updated", reply: ($("objReply")?.value || "").trim(),
+    });
     if (r.error) return toast("שגיאה: " + r.error);
     BROWSE = [];
-    toast("הנוסח עודכן במאגר");
+    toast(from ? `הנוסח עודכן · ${from} קיבלה עדכון` : "הנוסח עודכן במאגר");
     renderAssist({ mode: "answer", id: rec.id, text: $("objNew").value.trim(), category: rec.category, matchedQuestion: rec.question });
   };
-  $("objKeep").onclick = () => {
-    toast("נשאר ללא שינוי");
+  $("objKeep").onclick = async () => {
+    const r = await api("/api/records", {
+      action: "update", id: rec.id,
+      notify: from || "", decision: "kept", reply: ($("objReply")?.value || "").trim(),
+    });
+    if (r.error) return toast("שגיאה: " + r.error);
+    toast(from ? `${from} קיבלה עדכון שהנוסח נשאר` : "נשאר ללא שינוי");
     renderAssist({ mode: "answer", id: rec.id, text: rec.text, category: rec.category, matchedQuestion: rec.question });
   };
 }
@@ -561,7 +573,7 @@ async function poll() {
     $("bc").textContent = items.length; $("bc").style.display = items.length ? "inline" : "none";
     $("notifs").innerHTML = items.length
       ? items.map(n => `<div class="notif"><b>${esc(n.type)}</b><div class="t">${esc(n.text)}</div>
-          ${n.ref ? `<div class="acts" style="margin-top:8px"><button class="btn soft" data-ref="${esc(n.ref)}" data-type="${esc(n.type)}" data-note="${esc(n.text)}">${n.type === "השגה" ? "בדיקת ההשגה" : "צפייה בתשובה"}</button></div>` : ""}
+          ${n.ref ? `<div class="acts" style="margin-top:8px"><button class="btn soft" data-ref="${esc(n.ref)}" data-type="${esc(n.type)}" data-note="${esc(n.text)}" data-from="${esc(n.from || "")}">${n.type === "השגה" ? "בדיקת ההשגה" : "צפייה בתשובה"}</button></div>` : ""}
         </div>`).join("")
       : `<div class="empty">אין התראות</div>`;
     if (me.role === "מנהל") loadQueue(true);
@@ -576,7 +588,7 @@ $("notifs").addEventListener("click", async e => {
   $("notifs").style.display = "none";
   showSection("Assist");
   lastMsg = r.question || "";
-  if (b.dataset.type === "השגה") renderObjection(r, b.dataset.note || "");
+  if (b.dataset.type === "השגה") renderObjection(r, b.dataset.note || "", b.dataset.from || "");
   else renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
