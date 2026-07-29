@@ -26,6 +26,7 @@ export default async function handler(req, res) {
       if (b.status !== undefined) map["סטטוס"] = b.status;
       if (b.health !== undefined) map["בריאותי"] = b.health ? "כן" : "";
       if (b.general !== undefined) map["נוסח כללי"] = b.general ? "כן" : "";
+      if (b.note !== undefined) map["הערה לצוות"] = b.note;
       if (Object.keys(map).length) await updateById(b.id, map);
 
       // עדכון חזרה למי שהגישה את ההשגה
@@ -59,6 +60,7 @@ export default async function handler(req, res) {
         kind: r["סוג"] || "מענה",
         health: r["בריאותי"] === "כן",
         general: (r["נוסח כללי"] || "").trim() === "כן",
+        note: r["הערה לצוות"] || "",
       }));
 
     const categories = [...new Set(list.map(r => r.category).filter(Boolean))].sort();

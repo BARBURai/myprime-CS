@@ -151,6 +151,7 @@ function renderAssist(res) {
       ${res.general ? `<div style="background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:11px 13px;margin-top:12px;font-size:14px;line-height:1.7">${esc(res.generalReason || "מוצג נוסח כללי מאושר.")}<br>אם צריך תשובה ספציפית יותר, אפשר לשלוח השגה.</div>` : ""}
       ${res.justApproved ? `<div style="background:var(--ok-soft);color:var(--ok);border-radius:12px;padding:11px 13px;margin-top:14px;font-size:14px;line-height:1.7">התשובה אושרה. כדאי לקרוא אותה לפני השליחה, כי ייתכן שהנוסח שונה ממה שנשלח לאישור.<br>אם משהו לא מדויק, אפשר לשלוח השגה. אם הכול בסדר, אפשר להעתיק ולשלוח ללקוחה.</div>` : ""}
       <div class="lbl" style="margin-top:14px">התשובה המאושרת · מוכנה לשליחה</div>
+      ${res.note ? `<div class="teamnote"><b>הערה לצוות · לא נשלחת ללקוחה</b>${esc(res.note)}</div>` : ""}
       <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px">${esc(body)}</div>
       <div class="acts">
         <button class="btn" id="copy">העתקה ושליחה ללקוחה</button>
@@ -522,6 +523,8 @@ function renderApproval(it) {
     <textarea id="fa" class="grow">${esc((it.alt || "").split(";").map(x => x.trim()).filter(Boolean).join(", "))}</textarea>
     <label class="lbl" style="margin-top:10px">התשובה · אפשר לערוך</label>
     <textarea id="ft" style="min-height:170px">${esc(it.text || "")}</textarea>
+    <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות (לא נשלחת ללקוחה)</label>
+    <textarea id="fn" class="grow">${esc(it.note || "")}</textarea>
     <div class="acts" style="margin-top:14px">
       <button class="btn" id="ibOk">אישור · יעלה לאוויר</button>
       <button class="btn soft" id="ibRet">החזרה ל${esc(it.source || "טלי")}</button>
@@ -534,6 +537,7 @@ function renderApproval(it) {
       finalText: $("ft").value.trim(),
       question: $("fq").value.trim(),
       altPhrasings: $("fa").value.split(",").map(x => x.trim()).filter(Boolean).join("; "),
+      note: $("fn").value.trim(),
     });
     if (r.error) return toast("שגיאה: " + r.error);
     clearNotifsFor(it.id); BROWSE = [];
@@ -637,6 +641,7 @@ function drawBrowse() {
         ${canEdit ? `<button class="btn soft" data-a="edit">עריכה</button>` : ""}
       </div>
       <div class="ansWrap">
+        ${r.note ? `<div class="teamnote" style="margin-top:0"><b>הערה לצוות</b>${esc(r.note)}</div>` : ""}
         <div class="answer" style="background:var(--bg);border-radius:12px;padding:11px 13px;font-size:14.5px;margin:0">${esc(r.answer)}</div>
       </div>
       <div class="editArea"></div>
@@ -667,6 +672,8 @@ $("bList").addEventListener("click", async e => {
     <textarea class="ea grow">${esc(rec.alt.split(";").map(x => x.trim()).filter(Boolean).join(", "))}</textarea>
     <label class="lbl" style="margin-top:10px">התשובה</label>
     <textarea class="eb" style="min-height:140px">${esc(rec.answer)}</textarea>
+    <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות</label>
+    <textarea class="en grow">${esc(rec.note || "")}</textarea>
     <label class="lbl" style="margin-top:10px">קטגוריה</label>
     <input type="text" class="ec" value="${esc(rec.category)}"/>
     <label class="lbl" style="margin-top:10px">סוג לקוחה</label>
@@ -702,6 +709,7 @@ $("bList").addEventListener("click", async e => {
       answer: area.querySelector(".eb").value.trim(),
       category: area.querySelector(".ec").value.trim(),
       customerType: [...area.querySelectorAll(".ect .on")].map(x => x.dataset.v).join("; "),
+      note: area.querySelector(".en").value.trim(),
       status: forceApprove ? "מאושר" : chosen,
       general: !!area.querySelector(".egen .on"),
     };
@@ -710,7 +718,7 @@ $("bList").addEventListener("click", async e => {
     Object.assign(rec, {
       question: payload.question, alt: payload.alt, answer: payload.answer,
       category: payload.category, customerType: payload.customerType,
-      status: payload.status, general: payload.general,
+      status: payload.status, general: payload.general, note: payload.note,
     });
     if (payload.status === "מאושר") clearNotifsFor(id);
     toast(payload.status === "מאושר" ? "נשמר ואושר · עלה לאוויר" : "נשמר · " + payload.status);
@@ -781,6 +789,7 @@ if ($("aSave")) $("aSave").onclick = async () => {
   const admin = me.role === "מנהל";
   const r = await api("/api/submit", {
     kind: admin ? "direct" : "new", question: q, draft: body,
+    note: $("aNote").value.trim(),
     altPhrasings: $("aAlt").value.split(",").map(x => x.trim()).filter(Boolean),
     fields: {
       category: $("aCat").value.trim(),
@@ -793,7 +802,7 @@ if ($("aSave")) $("aSave").onclick = async () => {
   if (r.error) return toast("שגיאה: " + r.error);
   toast(admin ? "נוסף למאגר · " + r.id : "נשלח לאישור");
   BROWSE = [];
-  $("aQ").value = $("aAlt").value = $("aBody").value = $("aCat").value = "";
+  $("aQ").value = $("aAlt").value = $("aBody").value = $("aCat").value = $("aNote").value = "";
 };
 
 // ---------- כלים והתראות ----------

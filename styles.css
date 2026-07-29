@@ -99,3 +99,9 @@ textarea.grow{min-height:46px;overflow:hidden;resize:none;line-height:1.7}
 /* ---- תשובה מקופלת בכרטיס ---- */
 .ansWrap{display:none;margin-top:10px}
 .ansWrap.open{display:block}
+
+/* ---- הערה תפעולית לצוות ---- */
+.teamnote{background:#EFF3F8;border:1px solid #D6E0EC;color:#3B4A5C;
+  border-radius:12px;padding:11px 13px;font-size:14px;line-height:1.7;margin-top:12px;
+  white-space:pre-wrap}
+.teamnote b{display:block;font-size:12px;color:#6B7C90;margin-bottom:4px;font-weight:600}

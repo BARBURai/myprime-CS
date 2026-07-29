@@ -22,6 +22,7 @@ export default async function handler(req, res) {
       text: bodyOf(r),
       category: r["קטגוריה"],
       customerType: r["סוג לקוחה"] || "",
+      note: r["הערה לצוות"] || "",
       status: r["סטטוס"],
     });
   } catch (e) {

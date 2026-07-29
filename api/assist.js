@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     if (m) return send(res, 200, {
       mode: "answer", id: m["מזהה"], text: bodyOf(m),
       category: m["קטגוריה"], health: m["בריאותי"] === "כן",
-      matchedQuestion: m["שאלה מרכזית"],
+      matchedQuestion: m["שאלה מרכזית"], note: m["הערה לצוות"] || "",
     });
 
     // --- שלב 2: התאמה קרובה, עדיין בלי טוקנים ---
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
       return send(res, 200, {
         mode: "answer", id: r["מזהה"], text: bodyOf(r),
         category: r["קטגוריה"], health: r["בריאותי"] === "כן",
-        matchedQuestion: r["שאלה מרכזית"], near: true,
+        matchedQuestion: r["שאלה מרכזית"], near: true, note: r["הערה לצוות"] || "",
       });
     }
 
@@ -48,7 +48,7 @@ export default async function handler(req, res) {
       if (rec) return send(res, 200, {
         mode: "answer", id: rec["מזהה"], text: bodyOf(rec),
         category: rec["קטגוריה"], health: rec["בריאותי"] === "כן",
-        matchedQuestion: rec["שאלה מרכזית"],
+        matchedQuestion: rec["שאלה מרכזית"], note: rec["הערה לצוות"] || "",
       });
     }
     if (out.action === "ask") return send(res, 200, { mode: "ask", questions: out.questions || [] });
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
       return send(res, 200, {
         mode: "answer", id: gen["מזהה"], text: bodyOf(gen),
         category: gen["קטגוריה"], health: gen["בריאותי"] === "כן",
-        matchedQuestion: gen["שאלה מרכזית"],
+        matchedQuestion: gen["שאלה מרכזית"], note: gen["הערה לצוות"] || "",
         general: true,
         generalReason: `לא נמצאה תשובה מדויקת להודעה הזו, ולכן מוצג הנוסח הכללי המאושר בנושא ${gen["קטגוריה"] || "הזה"}.`,
       });
