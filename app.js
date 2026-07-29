@@ -52,6 +52,8 @@ function start() {
   $("sub").textContent = `${me.name} · ${me.role}`;
   buildTabs();
   poll(); setInterval(poll, 20000);
+  setupPush();
+  openFromUrl();
   if (me.role === "מנהל") loadQueue();
 }
 
@@ -250,6 +252,49 @@ $("uAdd").onclick = async () => {
   $("uName").value = $("uEmail").value = $("uCode").value = "";
   loadUsers();
 };
+
+// ---------- פוש: רישום המכשיר לקבלת התראות ----------
+async function setupPush() {
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    if (Notification.permission === "denied") return;
+    if (Notification.permission !== "granted") {
+      const p = await Notification.requestPermission();
+      if (p !== "granted") return;
+    }
+    const { key } = await fetch("/api/subscribe").then(r => r.json());
+    if (!key) return;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key),
+      });
+      await api("/api/subscribe", { subscription: sub.toJSON() });
+    } else if (!localStorage.getItem("myprime_push_saved")) {
+      await api("/api/subscribe", { subscription: sub.toJSON() });
+    }
+    localStorage.setItem("myprime_push_saved", "1");
+  } catch { /* פוש לא זמין במכשיר הזה */ }
+}
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const b64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+/** פתיחת תשובה ישירות מלחיצה על התראה במכשיר */
+async function openFromUrl() {
+  const ref = new URLSearchParams(location.search).get("ref");
+  if (!ref) return;
+  history.replaceState({}, "", "/");
+  const r = await api("/api/record", { id: ref });
+  if (r.error) return;
+  lastMsg = r.question || "";
+  renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
+}
 
 // ---------- הוספת תשובה ידנית (מנהל) ----------
 ["aCt", "aKind"].forEach(id => {
