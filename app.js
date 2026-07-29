@@ -7,6 +7,18 @@
 import { personalize } from "./lib/wrap.js";
 
 const $ = id => document.getElementById(id);
+
+/** מתאים גובה של תיבת טקסט לתוכן שלה */
+function autoGrow(el) {
+  if (!el) return;
+  const fit = () => { el.style.height = "auto"; el.style.height = (el.scrollHeight + 2) + "px"; };
+  el.addEventListener("input", fit);
+  requestAnimationFrame(fit);
+}
+/** מפעיל גדילה אוטומטית על כל התיבות בתוך אלמנט */
+function growAll(root) {
+  (root || document).querySelectorAll("textarea.grow").forEach(autoGrow);
+}
 const esc = s => (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 const SKEY = "myprime_cs_user";
 
@@ -493,9 +505,9 @@ function renderApproval(it) {
       <span class="meta">· ${esc(it.id)} · ${esc(it.category || "")} · ${esc(it.customerType || "")} · הכינה: ${esc(it.source || "")}</span>
     </div>
     <label class="lbl">השאלה המרכזית · קצרה, כדי שתימצא בפעם הבאה</label>
-    <input type="text" id="fq" value="${esc(it.question || "")}"/>
+    <textarea id="fq" class="grow">${esc(it.question || "")}</textarea>
     <label class="lbl" style="margin-top:10px">ניסוחים חלופיים (מופרדים בפסיק)</label>
-    <input type="text" id="fa" value="${esc((it.alt || "").split(";").map(x => x.trim()).filter(Boolean).join(", "))}"/>
+    <textarea id="fa" class="grow">${esc((it.alt || "").split(";").map(x => x.trim()).filter(Boolean).join(", "))}</textarea>
     <label class="lbl" style="margin-top:10px">התשובה · אפשר לערוך</label>
     <textarea id="ft" style="min-height:170px">${esc(it.text || "")}</textarea>
     <div class="acts" style="margin-top:14px">
@@ -503,6 +515,7 @@ function renderApproval(it) {
       <button class="btn soft" id="ibRet">החזרה ל${esc(it.source || "טלי")}</button>
     </div></div>`;
 
+  growAll($("ibWork"));
   $("ibOk").onclick = async () => {
     const r = await api("/api/approve", {
       action: "approve", id: it.id, to: it.source || "טלי",
@@ -606,10 +619,13 @@ function drawBrowse() {
         <span class="badge ${r.status === "מאושר" ? "ok" : "none"}">${esc(r.status)}</span>
       </div>
       <div class="meta" style="margin-top:6px">${esc(r.id)} · ${esc(r.category || "ללא קטגוריה")} · ${esc(r.customerType || "כל הסוגים")}${r.health ? " · בריאותי" : ""}</div>
-      <div class="answer" style="background:var(--bg);border-radius:12px;padding:11px 13px;font-size:14.5px">${esc(r.answer)}</div>
-      <div class="acts">
+      <div class="acts" style="margin-top:10px">
+        <button class="btn soft" data-a="toggle">הצגת התשובה</button>
         <button class="btn soft" data-a="copy">העתקה</button>
         ${canEdit ? `<button class="btn soft" data-a="edit">עריכה</button>` : ""}
+      </div>
+      <div class="ansWrap">
+        <div class="answer" style="background:var(--bg);border-radius:12px;padding:11px 13px;font-size:14.5px;margin:0">${esc(r.answer)}</div>
       </div>
       <div class="editArea"></div>
     </div>`).join("") || `<div class="empty">לא נמצאו תשובות מתאימות</div>`;
@@ -620,6 +636,12 @@ $("bList").addEventListener("click", async e => {
   const card = btn.closest(".panel"), id = card.dataset.id;
   const rec = BROWSE.find(x => x.id === id); if (!rec) return;
 
+  if (btn.dataset.a === "toggle") {
+    const w = card.querySelector(".ansWrap");
+    w.classList.toggle("open");
+    btn.textContent = w.classList.contains("open") ? "הסתרת התשובה" : "הצגת התשובה";
+    return;
+  }
   if (btn.dataset.a === "copy") {
     copy(personalize(rec.answer, "", me.name), "התשובה הועתקה");
     return;
@@ -628,9 +650,9 @@ $("bList").addEventListener("click", async e => {
   if (area.innerHTML) { area.innerHTML = ""; return; }
   area.innerHTML = `
     <label class="lbl" style="margin-top:12px">השאלה המרכזית</label>
-    <input type="text" class="eq" value="${esc(rec.question)}"/>
+    <textarea class="eq grow">${esc(rec.question)}</textarea>
     <label class="lbl" style="margin-top:10px">ניסוחים חלופיים (מופרדים בפסיק)</label>
-    <input type="text" class="ea" value="${esc(rec.alt.split(";").map(x => x.trim()).filter(Boolean).join(", "))}"/>
+    <textarea class="ea grow">${esc(rec.alt.split(";").map(x => x.trim()).filter(Boolean).join(", "))}</textarea>
     <label class="lbl" style="margin-top:10px">התשובה</label>
     <textarea class="eb" style="min-height:140px">${esc(rec.answer)}</textarea>
     <label class="lbl" style="margin-top:10px">קטגוריה</label>
@@ -645,6 +667,7 @@ $("bList").addEventListener("click", async e => {
       <button class="btn" data-a="approve">שמירה ואישור</button>
       <button class="btn soft" data-a="save">שמירה בלבד</button>
     </div>`;
+  growAll(area);
   area.querySelector(".ect").addEventListener("click", ev => {
     const b = ev.target.closest("button"); if (b) b.classList.toggle("on");
   });

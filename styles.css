@@ -93,3 +93,9 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent-soft);bor
 .dd .list button:last-child{border-bottom:none}
 .dd .list button:hover{background:var(--bg)}
 .dd .list button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+
+/* ---- שדות שגדלים לפי התוכן ---- */
+textarea.grow{min-height:46px;overflow:hidden;resize:none;line-height:1.7}
+/* ---- תשובה מקופלת בכרטיס ---- */
+.ansWrap{display:none;margin-top:10px}
+.ansWrap.open{display:block}
