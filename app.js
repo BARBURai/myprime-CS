@@ -58,7 +58,7 @@ function start() {
 }
 
 function buildTabs() {
-  const tabs = [{ id: "Assist", label: "עוזר תשובות" }];
+  const tabs = [{ id: "Assist", label: "עוזר תשובות" }, { id: "Browse", label: "מאגר התשובות" }];
   if (me.role === "מנהל") {
     tabs.push({ id: "Approve", label: "אישורים" });
     tabs.push({ id: "Add", label: "הוספת תשובה" });
@@ -69,8 +69,9 @@ function buildTabs() {
   $("tabs").onclick = e => {
     const b = e.target.closest("button"); if (!b) return;
     [...$("tabs").children].forEach(x => x.classList.toggle("on", x === b));
-    ["Assist", "Approve", "Add", "Users"].forEach(id => $("tab" + id).style.display = (id === b.dataset.t ? "block" : "none"));
+    ["Assist", "Browse", "Approve", "Add", "Users"].forEach(id => { const el = $("tab" + id); if (el) el.style.display = (id === b.dataset.t ? "block" : "none"); });
     if (b.dataset.t === "Approve") loadQueue();
+    if (b.dataset.t === "Browse") loadBrowse();
     if (b.dataset.t === "Users") loadUsers();
   };
   if (tabs.length === 1) $("tabs").style.display = "none";
@@ -253,6 +254,109 @@ $("uAdd").onclick = async () => {
   loadUsers();
 };
 
+// ---------- מאגר התשובות ----------
+let BROWSE = [], canEdit = false;
+let bCat = "", bType = "", bStatus = "";
+
+async function loadBrowse() {
+  if (BROWSE.length) return drawBrowse();
+  $("bList").innerHTML = `<div class="spin">טוען…</div>`;
+  const r = await api("/api/records", { action: "list" });
+  if (r.error) { $("bList").innerHTML = `<div class="panel"><span class="badge warn">${esc(r.error)}</span></div>`; return; }
+  BROWSE = r.records || []; canEdit = !!r.canEdit;
+  if (canEdit) $("bStatusWrap").style.display = "block";
+  $("bCat").innerHTML = `<button class="chip on" data-v="">הכול</button>` +
+    (r.categories || []).map(c => `<button class="chip" data-v="${esc(c)}">${esc(c)}</button>`).join("");
+  drawBrowse();
+}
+
+function pickChips(wrapId, setter) {
+  const el = $(wrapId); if (!el) return;
+  el.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    [...el.children].forEach(x => x.classList.toggle("on", x === b));
+    setter(b.dataset.v); drawBrowse();
+  });
+}
+pickChips("bCat", v => bCat = v);
+pickChips("bType", v => bType = v);
+pickChips("bStatus", v => bStatus = v);
+if ($("bSearch")) $("bSearch").addEventListener("input", () => drawBrowse());
+
+function drawBrowse() {
+  const q = ($("bSearch").value || "").trim().toLowerCase();
+  const list = BROWSE.filter(r => {
+    if (bCat && r.category !== bCat) return false;
+    if (bStatus && r.status !== bStatus) return false;
+    if (bType) {
+      const types = r.customerType.split(";").map(x => x.trim()).filter(Boolean);
+      if (!types.includes(bType)) return false;
+    }
+    if (q && !(r.question + " " + r.alt + " " + r.answer).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  $("bCount").textContent = `${list.length} תשובות`;
+  $("bList").innerHTML = list.map(r => `<div class="panel" style="padding:14px 16px" data-id="${esc(r.id)}">
+      <div class="acts" style="justify-content:space-between">
+        <div style="font-size:15px;font-weight:600">${esc(r.question)}</div>
+        <span class="badge ${r.status === "מאושר" ? "ok" : "none"}">${esc(r.status)}</span>
+      </div>
+      <div class="meta" style="margin-top:6px">${esc(r.id)} · ${esc(r.category || "ללא קטגוריה")} · ${esc(r.customerType || "כל הסוגים")}${r.health ? " · בריאותי" : ""}</div>
+      <div class="answer" style="background:var(--bg);border-radius:12px;padding:11px 13px;font-size:14.5px">${esc(r.answer)}</div>
+      <div class="acts">
+        <button class="btn soft" data-a="copy">העתקה</button>
+        ${canEdit ? `<button class="btn soft" data-a="edit">עריכה</button>` : ""}
+      </div>
+      <div class="editArea"></div>
+    </div>`).join("") || `<div class="empty">לא נמצאו תשובות מתאימות</div>`;
+}
+
+$("bList").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-a]"); if (!btn) return;
+  const card = btn.closest(".panel"), id = card.dataset.id;
+  const rec = BROWSE.find(x => x.id === id); if (!rec) return;
+
+  if (btn.dataset.a === "copy") {
+    copy(personalize(rec.answer, "", me.name), "התשובה הועתקה");
+    return;
+  }
+  const area = card.querySelector(".editArea");
+  if (area.innerHTML) { area.innerHTML = ""; return; }
+  area.innerHTML = `
+    <label class="lbl" style="margin-top:12px">השאלה המרכזית</label>
+    <input type="text" class="eq" value="${esc(rec.question)}"/>
+    <label class="lbl" style="margin-top:10px">ניסוחים חלופיים (מופרדים בפסיק)</label>
+    <input type="text" class="ea" value="${esc(rec.alt.split(";").map(x => x.trim()).filter(Boolean).join(", "))}"/>
+    <label class="lbl" style="margin-top:10px">התשובה</label>
+    <textarea class="eb" style="min-height:140px">${esc(rec.answer)}</textarea>
+    <label class="lbl" style="margin-top:10px">קטגוריה</label>
+    <input type="text" class="ec" value="${esc(rec.category)}"/>
+    <label class="lbl" style="margin-top:10px">סוג לקוחה</label>
+    <div class="chips ect">${["לקוחה קיימת", "עדיין לא לקוחה", "שתיהן"].map(o =>
+      `<button class="chip ${rec.customerType.includes(o) ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
+    <div class="acts" style="margin-top:14px"><button class="btn" data-a="save">שמירה</button></div>`;
+  area.querySelector(".ect").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (b) b.classList.toggle("on");
+  });
+  area.querySelector('[data-a="save"]').onclick = async () => {
+    const payload = {
+      action: "update", id,
+      question: area.querySelector(".eq").value.trim(),
+      alt: area.querySelector(".ea").value.split(",").map(x => x.trim()).filter(Boolean).join("; "),
+      answer: area.querySelector(".eb").value.trim(),
+      category: area.querySelector(".ec").value.trim(),
+      customerType: [...area.querySelectorAll(".ect .on")].map(x => x.dataset.v).join("; "),
+    };
+    const r = await api("/api/records", payload);
+    if (r.error) return toast("שגיאה: " + r.error);
+    Object.assign(rec, {
+      question: payload.question, alt: payload.alt, answer: payload.answer,
+      category: payload.category, customerType: payload.customerType,
+    });
+    toast("נשמר"); drawBrowse();
+  };
+});
+
 // ---------- פוש: רישום המכשיר לקבלת התראות ----------
 async function setupPush() {
   try {
@@ -349,7 +453,7 @@ $("notifs").addEventListener("click", async e => {
   if (r.error) return toast(r.error);
   $("notifs").style.display = "none";
   [...$("tabs").children].forEach((x, i) => x.classList.toggle("on", i === 0));
-  ["Assist", "Approve", "Add", "Users"].forEach(id => { const el = $("tab" + id); if (el) el.style.display = (id === "Assist" ? "block" : "none"); });
+  ["Assist", "Browse", "Approve", "Add", "Users"].forEach(id => { const el = $("tab" + id); if (el) el.style.display = (id === "Assist" ? "block" : "none"); });
   lastMsg = r.question || "";
   renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category, matchedQuestion: r.question });
   window.scrollTo({ top: 0, behavior: "smooth" });
