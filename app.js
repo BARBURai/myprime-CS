@@ -307,56 +307,164 @@ $("uAdd").onclick = async () => {
   loadUsers();
 };
 
+
+// ---------- השוואת נוסחים: מה נמחק ומה נוסף ----------
+/** מפרק לטוקנים של מילים ורווחים, כדי לשמור על מבנה הטקסט */
+function tokens(t) {
+  return (t || "").split(/(\s+)/).filter(x => x !== "");
+}
+
+/** השוואה ברמת המילה, מבוססת רצף משותף ארוך ביותר */
+function wordDiff(oldText, newText) {
+  const a = tokens(oldText), b = tokens(newText);
+  const n = a.length, m = b.length;
+  // טבלת אורכים של רצף משותף
+  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+
+  const out = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: "same", v: a[i] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: "del", v: a[i] }); i++; }
+    else { out.push({ t: "ins", v: b[j] }); j++; }
+  }
+  while (i < n) out.push({ t: "del", v: a[i++] });
+  while (j < m) out.push({ t: "ins", v: b[j++] });
+  return out;
+}
+
+/** מקבץ את ההשוואה ליחידות: קטע זהה, או שינוי (הוסר מול נוסף) */
+function buildChunks(oldText, newText) {
+  const parts = wordDiff(oldText, newText);
+  const chunks = [];
+  let dels = [], ins = [];
+  const flush = () => {
+    if (dels.length || ins.length) {
+      chunks.push({ type: "change", del: dels.join(""), ins: ins.join("") });
+      dels = []; ins = [];
+    }
+  };
+  for (const p of parts) {
+    if (p.t === "same") { flush(); 
+      if (chunks.length && chunks[chunks.length - 1].type === "same") chunks[chunks.length - 1].text += p.v;
+      else chunks.push({ type: "same", text: p.v });
+    }
+    else if (p.t === "del") dels.push(p.v);
+    else ins.push(p.v);
+  }
+  flush();
+  return chunks;
+}
+
 // ---------- בדיקת השגה: הקיים מול המוצע ----------
 function renderObjection(rec, rawText, from) {
-  // הטקסט שנשמר בהתראה: "טלי מעירה על MP-XXX: <הערה>" ואחריו אולי "הצעה: <נוסח>"
+  // פענוח טקסט ההתראה: "טלי מעירה על MP-XXX: <הערה>" ואחריו אולי "הצעה: <נוסח>"
   const idx = rawText.indexOf("הצעה:");
   const head = idx >= 0 ? rawText.slice(0, idx) : rawText;
   const proposed = idx >= 0 ? rawText.slice(idx + 5).trim() : "";
   const note = (head.split(":").slice(1).join(":") || head).trim();
 
-  $("result").innerHTML = `<div class="panel">
-    <span class="badge warn">השגה לבדיקה</span>
+  const header = `
+    <span class="badge warn">השגה לבדיקה${from ? " · מ" + esc(from) : ""}</span>
     <div class="lbl" style="margin-top:12px">השאלה המקורית במאגר</div>
     <div style="font-size:15.5px;font-weight:600">${esc(rec.question || "")}</div>
     <div class="meta" style="margin-top:5px">${esc(rec.id)} · ${esc(rec.category || "ללא קטגוריה")} · ${esc(rec.customerType || "כל הסוגים")}</div>
     ${rec.alt ? `<div class="meta" style="margin-top:5px">ניסוחים חלופיים: ${esc(rec.alt.split(";").map(x => x.trim()).filter(Boolean).join(" · "))}</div>` : ""}
-
     <div class="lbl" style="margin-top:14px">מה שנכתב בהשגה</div>
-    <div style="background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:11px 13px;font-size:14.5px;white-space:pre-wrap">${esc(note || "בלי הערה")}</div>
+    <div style="background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:11px 13px;font-size:14.5px;white-space:pre-wrap">${esc(note || "בלי הערה")}</div>`;
 
-    <div class="lbl" style="margin-top:16px">הנוסח הקיים</div>
-    <div class="answer" style="background:var(--bg);border-radius:12px;padding:11px 13px;font-size:14.5px">${esc(rec.text || "")}</div>
+  const replyRow = `
+    <label class="lbl" style="margin-top:14px">הודעה חוזרת${from ? " ל" + esc(from) : ""} (לא חובה)</label>
+    <input type="text" id="objReply" placeholder="מילה קצרה שתצורף לעדכון"/>`;
 
-    ${proposed ? `
-      <div class="lbl" style="margin-top:6px">הנוסח המוצע · אפשר לערוך</div>
-      <textarea id="objNew" style="min-height:150px">${esc(proposed)}</textarea>
-      <label class="lbl" style="margin-top:10px">הודעה חוזרת${from ? " ל" + esc(from) : ""} (לא חובה)</label>
-      <input type="text" id="objReply" placeholder="מילה קצרה שתצורף לעדכון"/>
-      <div class="acts" style="margin-top:12px">
-        <button class="btn" id="objApprove">אישור הנוסח המוצע</button>
-        <button class="btn soft" id="objKeep">להשאיר כמו שהוא</button>
-      </div>`
-    : `
-      <div class="lbl" style="margin-top:6px">עריכת הנוסח</div>
-      <textarea id="objNew" style="min-height:150px">${esc(rec.text || "")}</textarea>
-      <label class="lbl" style="margin-top:10px">הודעה חוזרת${from ? " ל" + esc(from) : ""} (לא חובה)</label>
-      <input type="text" id="objReply" placeholder="מילה קצרה שתצורף לעדכון"/>
+  // ---- אין הצעת נוסח: עריכה חופשית ----
+  if (!proposed) {
+    $("result").innerHTML = `<div class="panel">${header}
+      <div class="lbl" style="margin-top:16px">הנוסח הקיים · אפשר לתקן</div>
+      <textarea id="objNew" style="min-height:160px">${esc(rec.text || "")}</textarea>
+      ${replyRow}
       <div class="acts" style="margin-top:12px">
         <button class="btn" id="objApprove">שמירת הנוסח</button>
         <button class="btn soft" id="objKeep">להשאיר כמו שהוא</button>
-      </div>`}
-  </div>`;
+      </div></div>`;
+    wireObjectionButtons(rec, from, () => $("objNew").value.trim());
+    return;
+  }
 
+  // ---- יש הצעה: מעקב שינויים ----
+  const chunks = buildChunks(rec.text || "", proposed);
+  const state = chunks.map(c => c.type === "change" ? "accepted" : null); // ברירת מחדל: מקבלים
+
+  const finalText = () => chunks.map((c, i) => {
+    if (c.type === "same") return c.text;
+    return state[i] === "accepted" ? c.ins : c.del;
+  }).join("");
+
+  const changeCount = chunks.filter(c => c.type === "change").length;
+
+  function draw() {
+    const accepted = state.filter(x => x === "accepted").length;
+    $("diffArea").innerHTML = chunks.map((c, i) => {
+      if (c.type === "same") return esc(c.text);
+      return `<span class="chunk ${state[i]}" data-i="${i}">${
+        c.del.trim() ? `<span class="del">${esc(c.del.trim())}</span>` : ""}${
+        c.ins.trim() ? `<span class="ins">${esc(c.ins.trim())}</span>` : ""}<span class="btns">
+          <button class="yes ${state[i] === "accepted" ? "on" : ""}" data-s="accepted" title="לקבל">✓</button>
+          <button class="no ${state[i] === "rejected" ? "on" : ""}" data-s="rejected" title="לדחות">✕</button>
+        </span></span> `;
+    }).join("");
+    $("diffCount").textContent = `${changeCount} שינויים · ${accepted} התקבלו, ${changeCount - accepted} נדחו`;
+    $("finalPreview").textContent = finalText();
+  }
+
+  $("result").innerHTML = `<div class="panel">${header}
+    <div class="lbl" style="margin-top:16px" id="diffCount"></div>
+    <div class="diffbox" id="diffArea"></div>
+    <div class="difflegend">
+      <span><i class="dot" style="background:#E4F1E8;border:1px solid #2F6B48"></i> הצעה של ${esc(from || "הצוות")}</span>
+      <span><i class="dot" style="background:#F7E2E4;border:1px solid #9B3B47"></i> הנוסח הקיים</span>
+    </div>
+    <div class="acts" style="margin-top:10px">
+      <button class="btn soft" id="accAll">לקבל הכל</button>
+      <button class="btn soft" id="rejAll">לדחות הכל</button>
+    </div>
+    <div class="lbl" style="margin-top:16px">הנוסח הסופי שיישמר</div>
+    <div class="finalbox" id="finalPreview"></div>
+    ${replyRow}
+    <div class="acts" style="margin-top:12px">
+      <button class="btn" id="objApprove">שמירת הנוסח הסופי</button>
+      <button class="btn soft" id="objKeep">ביטול · להשאיר כמו שהוא</button>
+    </div></div>`;
+
+  draw();
+
+  $("diffArea").addEventListener("click", e => {
+    const btn = e.target.closest("button[data-s]"); if (!btn) return;
+    const i = Number(btn.closest(".chunk").dataset.i);
+    state[i] = btn.dataset.s;
+    draw();
+  });
+  $("accAll").onclick = () => { chunks.forEach((c, i) => { if (c.type === "change") state[i] = "accepted"; }); draw(); };
+  $("rejAll").onclick = () => { chunks.forEach((c, i) => { if (c.type === "change") state[i] = "rejected"; }); draw(); };
+
+  wireObjectionButtons(rec, from, finalText);
+}
+
+/** מחבר את כפתורי השמירה והביטול, כולל עדכון חזרה למגישה */
+function wireObjectionButtons(rec, from, getText) {
   $("objApprove").onclick = async () => {
+    const text = (getText() || "").trim();
     const r = await api("/api/records", {
-      action: "update", id: rec.id, answer: $("objNew").value.trim(),
+      action: "update", id: rec.id, answer: text,
       notify: from || "", decision: "updated", reply: ($("objReply")?.value || "").trim(),
     });
     if (r.error) return toast("שגיאה: " + r.error);
     BROWSE = [];
     toast(from ? `הנוסח עודכן · ${from} קיבלה עדכון` : "הנוסח עודכן במאגר");
-    renderAssist({ mode: "answer", id: rec.id, text: $("objNew").value.trim(), category: rec.category, matchedQuestion: rec.question });
+    renderAssist({ mode: "answer", id: rec.id, text, category: rec.category, matchedQuestion: rec.question });
   };
   $("objKeep").onclick = async () => {
     const r = await api("/api/records", {

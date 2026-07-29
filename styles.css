@@ -53,3 +53,23 @@ input:focus,textarea:focus,select:focus{outline:2px solid var(--accent-soft);bor
 .section{display:flex;align-items:baseline;gap:9px;margin:18px 0 2px}
 .section .tt{font-size:18px;font-weight:700}
 .section .ss{font-size:12.5px;color:var(--muted)}
+
+/* ---- השוואת נוסחים ומעקב שינויים ---- */
+.diffbox{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:14px;font-size:15px;line-height:2.2;white-space:pre-wrap}
+.del{background:#F7E2E4;color:#9B3B47;text-decoration:line-through;border-radius:5px;padding:1px 4px}
+.ins{background:#E4F1E8;color:#2F6B48;border-radius:5px;padding:1px 4px;font-weight:600}
+.chunk{display:inline;border-radius:7px;padding:1px 2px}
+.chunk .btns{display:inline-flex;gap:3px;vertical-align:middle;margin:0 4px}
+.chunk .btns button{width:23px;height:23px;border-radius:7px;border:1px solid var(--line);
+  background:var(--card);cursor:pointer;font-size:12px;line-height:1;padding:0;color:var(--muted)}
+.chunk .btns button.on{color:#fff;border-color:transparent}
+.chunk .btns button.yes.on{background:#2F6B48}
+.chunk .btns button.no.on{background:#9B3B47}
+.chunk.rejected .ins{opacity:.28;font-weight:400;text-decoration:line-through}
+.chunk.accepted .del{opacity:.28;text-decoration:line-through}
+.difflegend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
+.difflegend span{display:inline-flex;align-items:center;gap:5px}
+.dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+.finalbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;font-size:15px;line-height:1.85;white-space:pre-wrap}
