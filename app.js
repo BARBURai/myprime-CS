@@ -169,7 +169,12 @@ function renderAssist(res) {
       a.innerHTML = `
         <label class="lbl" style="margin-top:12px">התשובה · עריכה ישירה במאגר</label>
         <textarea id="qeBody" style="min-height:170px">${esc(res.text || "")}</textarea>
-        <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות</label>
+        <label class="lbl" style="margin-top:10px">סוג רשומה</label>
+    <div class="chips ekind">${["מענה", "הודעה יזומה"].map(o =>
+      `<button class="chip ${(rec.kind || "מענה") === o ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
+    <label class="lbl" style="margin-top:10px">מתי שולחים (רק להודעה יזומה)</label>
+    <textarea class="etrig grow">${esc(rec.trigger || "")}</textarea>
+    <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות</label>
         <textarea id="qeNote" class="grow">${esc(res.note || "")}</textarea>
         <div class="acts" style="margin-top:10px">
           <button class="btn" id="qeSave">שמירה למאגר</button>
@@ -708,7 +713,7 @@ if ($("pResult")) $("pResult").addEventListener("click", async e => {
 
 // ---------- מאגר התשובות ----------
 let BROWSE = [], canEdit = false;
-let bCat = "", bType = "", bStatus = "";
+let bCat = "", bType = "", bStatus = "", bKind = "";
 
 async function loadBrowse() {
   if (BROWSE.length) return drawBrowse();
@@ -756,6 +761,7 @@ function setCategory(v) {
   $("bCatDD").classList.remove("open");
   drawBrowse();
 }
+pickChips("bKind", v => bKind = v);
 pickChips("bType", v => bType = v);
 pickChips("bStatus", v => bStatus = v);
 if ($("bSearch")) $("bSearch").addEventListener("input", () => drawBrowse());
@@ -764,6 +770,7 @@ function drawBrowse() {
   const q = ($("bSearch").value || "").trim().toLowerCase();
   const list = BROWSE.filter(r => {
     if (bCat && r.category !== bCat) return false;
+    if (bKind && (r.kind || "מענה") !== bKind) return false;
     if (bStatus && r.status !== bStatus) return false;
     if (bType) {
       const types = r.customerType.split(";").map(x => x.trim()).filter(Boolean);
@@ -779,9 +786,14 @@ function drawBrowse() {
   $("bList").innerHTML = list.map(r => `<div class="panel" style="padding:14px 16px" data-id="${esc(r.id)}">
       <div class="acts" style="justify-content:space-between">
         <div style="font-size:15px;font-weight:600">${esc(r.question)}</div>
-        <span class="badge ${r.status === "מאושר" ? "ok" : "none"}">${esc(r.status)}</span>
+        <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          ${(r.kind || "מענה") === "הודעה יזומה" ? `<span class="badge" style="background:#EFF3F8;color:#3B4A5C">📤 הודעה יזומה</span>` : ""}
+          ${r.general ? `<span class="badge warn">נוסח כללי</span>` : ""}
+          <span class="badge ${r.status === "מאושר" ? "ok" : "none"}">${esc(r.status)}</span>
+        </span>
       </div>
       <div class="meta" style="margin-top:6px">${esc(r.id)} · ${esc(r.category || "ללא קטגוריה")} · ${esc(r.customerType || "כל הסוגים")}${r.health ? " · בריאותי" : ""}</div>
+      ${r.trigger ? `<div class="meta" style="margin-top:4px">מתי שולחים: ${esc(r.trigger)}</div>` : ""}
       <div class="acts" style="margin-top:10px">
         <button class="btn soft" data-a="toggle">הצגת התשובה</button>
         <button class="btn soft" data-a="copy">העתקה</button>
@@ -819,6 +831,11 @@ $("bList").addEventListener("click", async e => {
     <textarea class="ea grow">${esc(rec.alt.split(";").map(x => x.trim()).filter(Boolean).join(", "))}</textarea>
     <label class="lbl" style="margin-top:10px">התשובה</label>
     <textarea class="eb" style="min-height:140px">${esc(rec.answer)}</textarea>
+    <label class="lbl" style="margin-top:10px">סוג רשומה</label>
+    <div class="chips ekind">${["מענה", "הודעה יזומה"].map(o =>
+      `<button class="chip ${(rec.kind || "מענה") === o ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
+    <label class="lbl" style="margin-top:10px">מתי שולחים (רק להודעה יזומה)</label>
+    <textarea class="etrig grow">${esc(rec.trigger || "")}</textarea>
     <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות</label>
     <textarea class="en grow">${esc(rec.note || "")}</textarea>
     <label class="lbl" style="margin-top:10px">קטגוריה</label>
@@ -840,6 +857,10 @@ $("bList").addEventListener("click", async e => {
   area.querySelector(".ect").addEventListener("click", ev => {
     const b = ev.target.closest("button"); if (b) b.classList.toggle("on");
   });
+  area.querySelector(".ekind").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    [...ev.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+  });
   area.querySelector(".egen").addEventListener("click", ev => {
     const b = ev.target.closest("button"); if (b) b.classList.toggle("on");
   });
@@ -858,6 +879,8 @@ $("bList").addEventListener("click", async e => {
       category: area.querySelector(".ec").value.trim(),
       customerType: [...area.querySelectorAll(".ect .on")].map(x => x.dataset.v).join("; "),
       note: area.querySelector(".en").value.trim(),
+      kind: area.querySelector(".ekind .on")?.dataset.v || "מענה",
+      trigger: area.querySelector(".etrig").value.trim(),
       status: forceApprove ? "מאושר" : chosen,
       general: !!area.querySelector(".egen .on"),
     };
@@ -867,6 +890,7 @@ $("bList").addEventListener("click", async e => {
       question: payload.question, alt: payload.alt, answer: payload.answer,
       category: payload.category, customerType: payload.customerType,
       status: payload.status, general: payload.general, note: payload.note,
+      kind: payload.kind, trigger: payload.trigger,
     });
     if (payload.status === "מאושר") clearNotifsFor(id);
     toast(payload.status === "מאושר" ? "נשמר ואושר · עלה לאוויר" : `נשמר בסטטוס ${payload.status}`);

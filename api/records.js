@@ -27,6 +27,8 @@ export default async function handler(req, res) {
       if (b.health !== undefined) map["בריאותי"] = b.health ? "כן" : "";
       if (b.general !== undefined) map["נוסח כללי"] = b.general ? "כן" : "";
       if (b.note !== undefined) map["הערה לצוות"] = b.note;
+      if (b.trigger !== undefined) map["מתי לשלוח (טריגר)"] = b.trigger;
+      if (b.kind !== undefined) map["סוג"] = b.kind;
       if (Object.keys(map).length) await updateById(b.id, map);
 
       // עדכון חזרה למי שהגישה את ההשגה
@@ -61,6 +63,7 @@ export default async function handler(req, res) {
         health: r["בריאותי"] === "כן",
         general: (r["נוסח כללי"] || "").trim() === "כן",
         note: r["הערה לצוות"] || "",
+        trigger: r["מתי לשלוח (טריגר)"] || "",
       }));
 
     const categories = [...new Set(list.map(r => r.category).filter(Boolean))].sort();
