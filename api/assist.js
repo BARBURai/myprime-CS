@@ -4,7 +4,7 @@
 // ============================================================
 
 import { readAll } from "../lib/sheets.js";
-import { exactMatch, fuzzyMatch, pool, bodyOf, generalFor } from "../lib/engine.js";
+import { exactMatch, fuzzyMatch, pool, bodyOf, generalFor, junkCheck } from "../lib/engine.js";
 import { assist } from "../lib/ai.js";
 import { requireUser } from "../lib/users.js";
 import { readBody, send } from "../lib/http.js";
@@ -15,6 +15,10 @@ export default async function handler(req, res) {
     await requireUser(body);
     const { message, scope = "all", context = {} } = body;
     if (!message) return send(res, 400, { error: "no-message" });
+
+    // --- סינון מוקדם, בלי טוקנים ---
+    const junk = junkCheck(message);
+    if (junk) return send(res, 200, { mode: "offtopic", reason: junk, free: true });
 
     const { records } = await readAll();
 
@@ -52,6 +56,13 @@ export default async function handler(req, res) {
       });
     }
     if (out.action === "ask") return send(res, 200, { mode: "ask", questions: out.questions || [] });
+
+    if (out.action === "offtopic") {
+      return send(res, 200, {
+        mode: "offtopic",
+        reason: out.reason || "ההודעה אינה נוגעת לשירות הלקוחות.",
+      });
+    }
 
     // מקרה שדורש התייעצות מקצועית: לא מנסחים כלום
     if (out.action === "refer") {

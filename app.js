@@ -142,6 +142,17 @@ function renderAssist(res) {
     return;
   }
 
+  // הודעה שאינה נוגעת לשירות הלקוחות
+  if (res.mode === "offtopic") {
+    box.innerHTML = `<div class="panel">
+      <span class="badge none">לא נושא לשירות הלקוחות</span>
+      <div class="teamnote" style="margin-top:12px"><b>הנחיה לצוות · לא נשלחת ללקוחה</b>${esc(res.reason || "")}
+
+המערכת מיועדת לפניות שירות לקוחות בלבד. אפשר לענות ידנית, ואין צורך להעביר את זה דרך המערכת.</div>
+    </div>`;
+    return;
+  }
+
   // מקרה שדורש התייעצות מקצועית
   if (res.mode === "refer") {
     box.innerHTML = `<div class="panel">
