@@ -109,6 +109,7 @@ function showSection(id) {
   const sec = SECTIONS.find(x => x.id === id);
   $("sectionTitle").innerHTML = `<span class="tt">${sec.icon} ${sec.title}</span><span class="ss">${sec.sub}</span>`;
   if (id === "Inbox") { ibBusy = false; loadInbox(); }
+  if (id === "Proactive") loadProactiveList();
   if (id === "Browse") loadBrowse();
 }
 
@@ -707,6 +708,7 @@ async function runProactive() {
     const res = await api("/api/submit", payload);
     if (res.error) return toast("שגיאה: " + res.error);
     toast(admin ? "נשמר במאגר" + (res.id ? " · " + res.id : "") : "נשלח לאישור");
+    if (admin) loadProactiveList(true);
     $("pResult").innerHTML = `<div class="panel"><span class="badge ok">${admin ? "נשמר במאגר" : "נשלח לאישור"}</span>
       <div class="answer" style="color:var(--muted)">${admin
         ? "ההודעה זמינה מעכשיו כשמחפשים את המצב הזה."
@@ -736,6 +738,68 @@ if ($("pResult")) $("pResult").addEventListener("click", async e => {
     BROWSE = []; toast("נשמר במאגר · " + id);
     runProactive();
   };
+});
+
+
+// ---------- רשימת כל ההודעות היזומות ----------
+let PROACTIVE = [], pCat = "";
+
+async function loadProactiveList(force) {
+  if (PROACTIVE.length && !force) return drawProactiveList();
+  $("pList").innerHTML = `<div class="spin">טוען…</div>`;
+  const r = await api("/api/proactive", { action: "list" });
+  if (r.error) { $("pList").innerHTML = `<div class="panel"><span class="badge warn">${esc(r.error)}</span></div>`; return; }
+  PROACTIVE = r.items || [];
+  $("pCatFilter").innerHTML = `<button class="chip on" data-v="">הכול</button>` +
+    (r.categories || []).map(c => `<button class="chip" data-v="${esc(c)}">${esc(c)}</button>`).join("");
+  drawProactiveList();
+}
+
+if ($("pCatFilter")) $("pCatFilter").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+  pCat = b.dataset.v; drawProactiveList();
+});
+if ($("pSearch")) $("pSearch").addEventListener("input", () => drawProactiveList());
+
+function drawProactiveList() {
+  const q = ($("pSearch").value || "").trim().toLowerCase();
+  const list = PROACTIVE.filter(x => {
+    if (pCat && x.category !== pCat) return false;
+    if (q && !(x.title + " " + x.trigger + " " + x.text).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  $("pCount").textContent = `${list.length} מתוך ${PROACTIVE.length}`;
+  $("pList").innerHTML = list.map(x => `<div class="panel" style="padding:14px 16px" data-plid="${esc(x.id)}">
+      <div class="acts" style="justify-content:space-between">
+        <div style="font-size:15px;font-weight:600">${esc(x.title || x.trigger || x.id)}</div>
+        <span class="meta">${esc(x.id)}</span>
+      </div>
+      ${x.trigger ? `<div class="meta" style="margin-top:5px">מתי שולחים: ${esc(x.trigger)}</div>` : ""}
+      ${x.category ? `<div class="meta" style="margin-top:3px">${esc(x.category)}</div>` : ""}
+      <div class="acts" style="margin-top:10px">
+        <button class="btn soft" data-pla="toggle">הצגת ההודעה</button>
+        <button class="btn soft" data-pla="copy">העתקה</button>
+      </div>
+      <div class="ansWrap">
+        ${x.note ? `<div class="teamnote" style="margin-top:0"><b>הערה לצוות</b>${esc(x.note)}</div>` : ""}
+        <div class="answer" style="background:var(--bg);border-radius:12px;padding:11px 13px;font-size:14.5px;margin:0">${esc(personalize(x.text, $("pName").value, me.name))}</div>
+      </div>
+    </div>`).join("") || `<div class="empty">לא נמצאו הודעות יזומות</div>`;
+}
+
+if ($("pList")) $("pList").addEventListener("click", e => {
+  const btn = e.target.closest("button[data-pla]"); if (!btn) return;
+  const card = btn.closest(".panel");
+  const item = PROACTIVE.find(x => x.id === card.dataset.plid);
+  if (!item) return;
+  if (btn.dataset.pla === "copy") {
+    copy(personalize(item.text, $("pName").value, me.name), "ההודעה הועתקה");
+    return;
+  }
+  const w = card.querySelector(".ansWrap");
+  w.classList.toggle("open");
+  btn.textContent = w.classList.contains("open") ? "הסתרת ההודעה" : "הצגת ההודעה";
 });
 
 // ---------- מאגר התשובות ----------

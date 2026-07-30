@@ -24,10 +24,17 @@ export default async function handler(req, res) {
   try {
     const b = await readBody(req);
     await requireUser(b);
+    const { records } = await readAll();
+
+    // רשימת כל ההודעות היזומות המאושרות, לתצוגה בתחתית המסך
+    if (b.action === "list") {
+      const items = proactivePool(records).map(asItem);
+      const categories = [...new Set(items.map(x => x.category).filter(Boolean))].sort();
+      return send(res, 200, { items, categories });
+    }
+
     const text = (b.text || "").trim();
     if (!text) return send(res, 400, { error: "חסר תיאור" });
-
-    const { records } = await readAll();
 
     // --- התאמה מדויקת, בחינם ---
     const exact = proactiveExact(records, text);
