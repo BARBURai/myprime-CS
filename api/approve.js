@@ -26,7 +26,8 @@ export default async function handler(req, res) {
         text: (r["נוסח סופי / תיקון"] || r["תשובה (קול ענת)"] || ""),
         category: r["קטגוריה"], customerType: r["סוג לקוחה"],
         health: r["בריאותי"] === "כן", source: r["מקור"], status: r["סטטוס"],
-        note: r["הערה לצוות"] || "",
+        note: r["הערה לצוות"] || "", kind: r["סוג"] || "מענה",
+        trigger: r["מתי לשלוח (טריגר)"] || "",
       }));
       return send(res, 200, { pending, counts });
     }
@@ -39,7 +40,8 @@ export default async function handler(req, res) {
       if (b.finalText) map["נוסח סופי / תיקון"] = b.finalText;
       if (b.question) map["שאלה מרכזית"] = b.question;
       if (b.altPhrasings) map["ניסוחים חלופיים"] = b.altPhrasings;
-      if (b.note !== undefined) map["הערה לצוות"] = b.note; // תיקון של Ron גובר
+      if (b.note !== undefined) map["הערה לצוות"] = b.note;
+      if (b.trigger !== undefined) map["מתי לשלוח (טריגר)"] = b.trigger; // תיקון של Ron גובר
       await updateById(b.id, map);
       await addNotification({ to, type: "אושר", text: `אושר ועלה לאוויר: ${b.id}`, ref: b.id });
       return send(res, 200, { ok: true });

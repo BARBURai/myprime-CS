@@ -73,6 +73,7 @@ function start() {
 const SECTIONS = [
   { id: "Inbox",   icon: "📥", title: "לטיפולי",      sub: "כל מה שממתין לך: אישורים והשגות", admin: true },
   { id: "Assist",  icon: "💬", title: "עוזר תשובות",  sub: "הדביקי הודעה של לקוחה וקבלי תשובה מוכנה" },
+  { id: "Proactive", icon: "📤", title: "הודעות יזומות", sub: "הודעות שאנחנו שולחים ביוזמתנו" },
   { id: "Browse",  icon: "📚", title: "מאגר התשובות", sub: "כל התשובות הקיימות, עם חיפוש וסינון" },
   { id: "Add",     icon: "➕", title: "הוספת תשובה",  sub: "הוספת תשובה חדשה למאגר" },
   { id: "Users",   icon: "👥", title: "משתמשים",      sub: "הרשאות, קודים אישיים וחסימה", admin: true },
@@ -599,6 +600,112 @@ if ($("ibMode")) $("ibMode").addEventListener("click", e => {
   loadInbox();
 });
 
+
+// ---------- הודעות יזומות ----------
+if ($("pGo")) {
+  $("pGo").onclick = runProactive;
+  $("pText").addEventListener("keydown", e => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runProactive();
+  });
+}
+
+async function runProactive() {
+  const text = $("pText").value.trim();
+  if (!text) return;
+  $("pResult").innerHTML = `<div class="spin">מחפש…</div>`;
+  const r = await api("/api/proactive", { text });
+  if (r.error) { $("pResult").innerHTML = `<div class="panel"><span class="badge warn">${esc(r.error)}</span></div>`; return; }
+
+  if (r.mode === "found") {
+    $("pResult").innerHTML = (r.items || []).map((it, i) => {
+      const body = personalize(it.text, $("pName").value, me.name);
+      return `<div class="panel" data-pid="${esc(it.id)}">
+        <div class="acts" style="justify-content:space-between">
+          <span class="badge ok">${i === 0 && r.exact ? "התאמה מדויקת" : "הודעה מאושרת"}</span>
+          <span class="meta">${esc(it.id)}${it.category ? " · " + esc(it.category) : ""}</span>
+        </div>
+        ${it.trigger ? `<div class="lbl" style="margin-top:10px">מתי שולחים</div><div style="font-size:14.5px;font-weight:600">${esc(it.trigger)}</div>` : ""}
+        ${it.note ? `<div class="teamnote"><b>הערה לצוות · לא נשלחת ללקוחה</b>${esc(it.note)}</div>` : ""}
+        <div class="lbl" style="margin-top:12px">ההודעה · מוכנה לשליחה</div>
+        <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px">${esc(body)}</div>
+        <div class="acts">
+          <button class="btn" data-pa="copy">העתקה ושליחה ללקוחה</button>
+          ${me.role === "מנהל" ? `<button class="btn soft" data-pa="edit">עריכה ושמירה</button>` : ""}
+        </div>
+        <div class="pEdit"></div>
+      </div>`;
+    }).join("");
+    return;
+  }
+
+  // אין התאמה: הצעת ניסוח
+  const admin = me.role === "מנהל";
+  $("pResult").innerHTML = `<div class="panel">
+    <span class="badge warn">אין הודעה מתאימה במאגר · הצעת ניסוח</span>
+    ${(r.suggestions || []).length ? `<div class="hint">אם התכוונת לאחת מאלה, אפשר לחפש שוב במילים אחרות: ${
+      r.suggestions.map(sg => esc(sg.trigger || sg.title)).join(" · ")}</div>` : ""}
+    <label class="lbl" style="margin-top:12px">שם קצר להודעה</label>
+    <input type="text" id="pQ" value="${esc(r.question || "")}"/>
+    <label class="lbl" style="margin-top:10px">מתי שולחים אותה</label>
+    <input type="text" id="pTrig" value="${esc(r.trigger || "")}"/>
+    <label class="lbl" style="margin-top:10px">ההודעה · אפשר לערוך</label>
+    <textarea id="pDraft" style="min-height:170px">${esc(r.draft || "")}</textarea>
+    <label class="lbl" style="margin-top:10px">קטגוריה</label>
+    <input type="text" id="pCat" value="${esc(r.category || "")}"/>
+    <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות (לא חובה)</label>
+    <textarea id="pNote" class="grow"></textarea>
+    <div class="acts" style="margin-top:14px">
+      <button class="btn" id="pSend">${admin ? "שמירה למאגר" : "שליחה לאישור"}</button>
+    </div></div>`;
+  growAll($("pResult"));
+
+  $("pSend").onclick = async () => {
+    const payload = {
+      kind: admin ? "direct" : "new",
+      question: $("pQ").value.trim() || $("pText").value.trim(),
+      draft: $("pDraft").value.trim(),
+      note: $("pNote").value.trim(),
+      fields: {
+        category: $("pCat").value.trim(),
+        customerTypes: [],
+        kind: "הודעה יזומה",
+        trigger: $("pTrig").value.trim(),
+      },
+    };
+    const res = await api("/api/submit", payload);
+    if (res.error) return toast("שגיאה: " + res.error);
+    toast(admin ? "נשמר במאגר" + (res.id ? " · " + res.id : "") : "נשלח לאישור");
+    $("pResult").innerHTML = `<div class="panel"><span class="badge ok">${admin ? "נשמר במאגר" : "נשלח לאישור"}</span>
+      <div class="answer" style="color:var(--muted)">${admin
+        ? "ההודעה זמינה מעכשיו כשמחפשים את המצב הזה."
+        : "נעדכן כאן כשזה יאושר."}</div></div>`;
+  };
+}
+
+// העתקה ועריכה בכרטיסי ההודעות היזומות
+if ($("pResult")) $("pResult").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-pa]"); if (!btn) return;
+  const card = btn.closest(".panel"), id = card.dataset.pid;
+  const bodyEl = card.querySelector(".answer");
+
+  if (btn.dataset.pa === "copy") { copy(bodyEl.textContent, "ההודעה הועתקה"); return; }
+
+  const area = card.querySelector(".pEdit");
+  if (area.innerHTML) { area.innerHTML = ""; return; }
+  area.innerHTML = `
+    <label class="lbl" style="margin-top:12px">ההודעה · עריכה ישירה במאגר</label>
+    <textarea class="peBody" style="min-height:160px">${esc(bodyEl.textContent.replace(/^היי[^\n]*\n\n/, "").replace(/\n\n[^\n]*, צוות MyPrime$/, ""))}</textarea>
+    <div class="acts" style="margin-top:10px"><button class="btn peSave">שמירה למאגר</button></div>`;
+  area.querySelector(".peSave").onclick = async () => {
+    const r = await api("/api/records", {
+      action: "update", id, answer: area.querySelector(".peBody").value.trim(), status: "מאושר",
+    });
+    if (r.error) return toast("שגיאה: " + r.error);
+    BROWSE = []; toast("נשמר במאגר · " + id);
+    runProactive();
+  };
+});
+
 // ---------- מאגר התשובות ----------
 let BROWSE = [], canEdit = false;
 let bCat = "", bType = "", bStatus = "";
@@ -725,9 +832,10 @@ $("bList").addEventListener("click", async e => {
     <div class="chips est">${["מאושר", "טיוטה", "לא לפרסם"].map(o =>
       `<button class="chip ${rec.status === o ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
     <div class="acts" style="margin-top:14px">
-      <button class="btn" data-a="approve">שמירה ואישור</button>
-      <button class="btn soft" data-a="save">שמירה בלבד</button>
-    </div>`;
+      <button class="btn" data-a="save">שמירה</button>
+      ${rec.status !== "מאושר" ? `<button class="btn soft" data-a="approve">שמירה ואישור מיידי</button>` : ""}
+    </div>
+    <div class="hint">השמירה נשמרת בסטטוס שסומן למעלה.</div>`;
   growAll(area);
   area.querySelector(".ect").addEventListener("click", ev => {
     const b = ev.target.closest("button"); if (b) b.classList.toggle("on");
@@ -761,10 +869,11 @@ $("bList").addEventListener("click", async e => {
       status: payload.status, general: payload.general, note: payload.note,
     });
     if (payload.status === "מאושר") clearNotifsFor(id);
-    toast(payload.status === "מאושר" ? "נשמר ואושר · עלה לאוויר" : "נשמר · " + payload.status);
+    toast(payload.status === "מאושר" ? "נשמר ואושר · עלה לאוויר" : `נשמר בסטטוס ${payload.status}`);
     drawBrowse();
   };
-  area.querySelector('[data-a="approve"]').onclick = () => doSave(true);
+  const approveBtn = area.querySelector('[data-a="approve"]');
+  if (approveBtn) approveBtn.onclick = () => doSave(true);
   area.querySelector('[data-a="save"]').onclick = () => doSave(false);
 });
 

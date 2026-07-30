@@ -44,6 +44,7 @@ export default async function handler(req, res) {
         "בריאותי": b.fields?.health ? "כן" : "",
         "סטטוס": "מאושר",
         "סוג": b.fields?.kind || "מענה",
+        "מתי לשלוח (טריגר)": b.fields?.trigger || "",
         "נוסח כללי": b.fields?.general ? "כן" : "",
         "הערה לצוות": b.note || "",
       });
@@ -62,7 +63,8 @@ export default async function handler(req, res) {
       "מקור": by,
       "בריאותי": b.fields?.health ? "כן" : "",
       "סטטוס": "ממתין לאישור",
-      "סוג": "מענה",
+      "סוג": b.fields?.kind || "מענה",
+      "מתי לשלוח (טריגר)": b.fields?.trigger || "",
       "נוסח כללי": b.fields?.general ? "כן" : "",
       "הערה לצוות": b.note || "",
     });
