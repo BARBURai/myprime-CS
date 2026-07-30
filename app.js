@@ -142,6 +142,22 @@ function renderAssist(res) {
     return;
   }
 
+  // מקרה שדורש התייעצות מקצועית
+  if (res.mode === "refer") {
+    box.innerHTML = `<div class="panel">
+      <span class="badge warn">דורש התייעצות מקצועית</span>
+      <div class="teamnote" style="margin-top:12px"><b>הנחיה לצוות · לא נשלחת ללקוחה</b>${esc(res.reason || "")}
+      
+אין לענות מהמערכת. יש להעביר את הפנייה לענת ולחזור ללקוחה רק אחרי שקיבלת ממנה מענה.</div>
+      <div class="lbl" style="margin-top:14px">אם רוצים לעדכן את הלקוחה בינתיים, אפשר להעתיק:</div>
+      <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px" id="referText">${esc(personalize("תודה ששיתפת בפירוט. מכיוון שמדובר במצב אישי שדורש התייחסות מקצועית, אעביר את הפנייה לענת ואחזור אלייך עם מענה.", $("cname").value, me.name))}</div>
+      <div class="acts">
+        <button class="btn" id="referCopy">העתקת הודעת הביניים</button>
+      </div></div>`;
+    $("referCopy").onclick = () => copy($("referText").textContent, "הועתק");
+    return;
+  }
+
   if (res.mode === "answer") {
     const body = personalize(res.text, $("cname").value, me.name);
     box.innerHTML = `<div class="panel">

@@ -52,6 +52,14 @@ export default async function handler(req, res) {
       });
     }
     if (out.action === "ask") return send(res, 200, { mode: "ask", questions: out.questions || [] });
+
+    // מקרה שדורש התייעצות מקצועית: לא מנסחים כלום
+    if (out.action === "refer") {
+      return send(res, 200, {
+        mode: "refer",
+        reason: out.reason || "ההודעה מתארת מצב רפואי ספציפי שדורש התייחסות מקצועית אישית.",
+      });
+    }
     // לפני שמנסחים משהו חדש: אם יש נוסח כללי מאושר לקטגוריה, מגישים אותו
     const gen = generalFor(records, out.fields?.category);
     if (gen) {
