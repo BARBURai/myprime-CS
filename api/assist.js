@@ -4,7 +4,7 @@
 // ============================================================
 
 import { readAll } from "../lib/sheets.js";
-import { exactMatch, fuzzyMatch, pool, bodyOf, generalFor, junkCheck } from "../lib/engine.js";
+import { exactMatch, fuzzyMatch, pool, bodyOf, generalFor, junkCheck, topCandidates } from "../lib/engine.js";
 import { assist } from "../lib/ai.js";
 import { requireUser } from "../lib/users.js";
 import { readBody, send } from "../lib/http.js";
@@ -42,7 +42,7 @@ export default async function handler(req, res) {
     }
 
     // --- שלב 3: מנוע חושב (Sonnet) ---
-    const candidates = pool(records, scope).map(r => ({
+    const candidates = topCandidates(records, message, scope, 60).map(r => ({
       id: r["מזהה"], q: r["שאלה מרכזית"], types: r["סוג לקוחה"], cat: r["קטגוריה"],
     }));
     const out = await assist({ message, context, candidates });
