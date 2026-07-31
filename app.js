@@ -1,45 +1,1174 @@
 // ============================================================
-// wrap.js — בלוק העטיפה והפרסונליזציה
-// המאגר שומר גוף תשובה בלבד. כאן מוסיפים תמיד פתיחה וחתימה.
-// זה המקום היחיד לשינוי הפתיחה, האימוג'י או נוסח החתימה.
+// app.js — בקרת המסך המאוחד
+// כניסה, לשוניות לפי תפקיד, עוזר, אישורים, וניהול משתמשים.
+// כל קריאה לשרת נושאת את פרטי הכניסה (auth).
 // ============================================================
 
-import { LINKS, CLOSERS } from "./config.js";
+import { personalize } from "./lib/wrap.js";
 
-const EMOJI = "🌷";
+const $ = id => document.getElementById(id);
 
-/** מחליף מציין מקום של קישור בקישור האמיתי, כדי שלא יישלח סוגר מרובע ללקוחה */
-function fillLinks(text) {
-  return (text || "")
-    .replace(/\[\s*(קישור ההרשמה|קישור הרשמה|קישור לדף ההרשמה|קישור לוובינר|לינק|קישור)\s*\]/g, LINKS.webinar);
+/** סוגי הלקוחה, לפי שלב במשפך. "כל הסוגים" ו"שתיהן" מתייחסים לכולן. */
+const CUSTOMER_TYPES = ["לקוחה קיימת", "לא השתתפה בוובינר", "השתתפה בוובינר", "כל הסוגים"];
+const isUniversalType = t => t === "כל הסוגים" || t === "שתיהן";
+
+/** מתאים גובה של תיבת טקסט לתוכן שלה */
+function autoGrow(el) {
+  if (!el) return;
+  const fit = () => { el.style.height = "auto"; el.style.height = (el.scrollHeight + 2) + "px"; };
+  el.addEventListener("input", fit);
+  requestAnimationFrame(fit);
+}
+/** מפעיל גדילה אוטומטית על כל התיבות בתוך אלמנט */
+function growAll(root) {
+  (root || document).querySelectorAll("textarea.grow").forEach(autoGrow);
+}
+const esc = s => (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const SKEY = "myprime_cs_user";
+
+let me = null;               // {name, email, role, code}
+let NOTIFS = [];             // ההתראות שטרם נקראו
+let scope = "all", context = {}, lastMsg = "";
+let queue = [], qi = 0;
+
+// ---------- קריאה לשרת ----------
+async function api(path, body = {}) {
+  const r = await fetch(path, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...body, auth: { email: me?.email, code: me?.code } }),
+  });
+  return r.json();
 }
 
-/** מנקה פתיחה או חתימה שנשמרו בטעות בתוך גוף התשובה. */
-function stripWrappers(text) {
-  let t = (text || "").trim();
-  // הסרת פתיחה קיימת בתחילת הטקסט
-  t = t.replace(/^היי\s*(\[שם\])?\s*[,\-–]?\s*🌷?\s*/u, "");
-  // הסרת חתימה קיימת בסוף הטקסט
-  t = t.replace(/\n*\s*[^\n]*,\s*צוות MyPrime\s*$/u, "");
-  return t.trim();
+// ---------- כניסה ----------
+$("lGo").onclick = login;
+$("lCode").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+
+async function login() {
+  const email = $("lEmail").value.trim(), code = $("lCode").value.trim();
+  if (!email || !code) return showErr("נא למלא מייל וקוד");
+  $("lGo").disabled = true;
+  try {
+    const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, code }) }).then(r => r.json());
+    if (r.error) return showErr(r.error);
+    me = { ...r, code };
+    localStorage.setItem(SKEY, JSON.stringify(me));
+    start();
+  } catch { showErr("שגיאה בכניסה"); }
+  finally { $("lGo").disabled = false; }
+}
+function showErr(m) { const e = $("lErr"); e.textContent = m; e.style.display = "block"; }
+
+$("logout").onclick = () => { localStorage.removeItem(SKEY); location.reload(); };
+
+// ---------- הפעלה ----------
+function start() {
+  $("loginScreen").style.display = "none";
+  $("app").style.display = "block";
+  $("sub").textContent = `${me.name} · ${me.role}`;
+  buildTabs();
+  poll(); setInterval(poll, 20000);
+  setupPush();
+  openFromUrl();
+  if (me.role === "מנהל") loadInbox();
 }
 
-/** שורת הפתיחה. עם שם או בלעדיו, תמיד עם הפרח. */
-function opening(name) {
-  const who = (name || "").trim();
-  return who ? `היי ${who} ${EMOJI}` : `היי ${EMOJI}`;
+const SECTIONS = [
+  { id: "Inbox",   icon: "📥", title: "לטיפולי",      sub: "כל מה שממתין לך: אישורים והשגות", admin: true },
+  { id: "Assist",  icon: "💬", title: "עוזר תשובות",  sub: "הדביקי הודעה של לקוחה וקבלי תשובה מוכנה" },
+  { id: "Proactive", icon: "📤", title: "הודעות יזומות", sub: "הודעות שאנחנו שולחים ביוזמתנו" },
+  { id: "Browse",  icon: "📚", title: "מאגר התשובות", sub: "כל התשובות הקיימות, עם חיפוש וסינון" },
+  { id: "Add",     icon: "➕", title: "הוספת תשובה",  sub: "הוספת תשובה חדשה למאגר" },
+  { id: "Users",   icon: "👥", title: "משתמשים",      sub: "הרשאות, קודים אישיים וחסימה", admin: true },
+];
+
+let current = "Assist";
+const mySections = () => SECTIONS.filter(x => !x.admin || me.role === "מנהל");
+
+function buildTabs() {
+  $("nav").innerHTML = mySections().map(x => `
+    <button data-t="${x.id}">
+      <span class="em">${x.icon}</span>${x.title}
+      ${x.id === "Inbox" ? `<span class="cnt" id="qApprove" style="display:none"></span>` : ""}
+    </button>`).join("");
+  $("nav").onclick = e => {
+    const b = e.target.closest("button[data-t]"); if (b) showSection(b.dataset.t);
+  };
+  showSection(me.role === "מנהל" ? "Inbox" : "Assist");
 }
 
-/**
- * עוטף גוף תשובה בפתיחה, סיומת לפי שלב במשפך, וחתימה.
- * scope הוא סוג הלקוחה שנבחר. אם אינו ידוע, לא מתווספת סיומת.
- */
-export function personalize(text, customerName, responder, scope) {
-  const body = fillLinks(stripWrappers(text).replace(/\[שם\]/g, (customerName || "").trim() || ""));
-  const sign = `${(responder || "").trim() || "צוות"}, צוות MyPrime`;
-  const closer = CLOSERS[scope] ? fillLinks(CLOSERS[scope]) : "";
-  const parts = [opening(customerName), "", body];
-  if (closer) parts.push("", closer);
-  parts.push("", sign);
-  return parts.join("\n");
+function showSection(id) {
+  current = id;
+  if (id === "Add" && $("aTitle")) {
+    const admin = me.role === "מנהל";
+    $("aTitle").textContent = admin
+      ? "הוספת תשובה למאגר · נכנסת מיד כמאושרת"
+      : "הצעת תשובה חדשה · תישלח לאישור לפני שתיכנס למאגר";
+    $("aSave").textContent = admin ? "הוספה למאגר" : "שליחה לאישור";
+  }
+  if (id === "Assist") setAssistInput(true);
+  SECTIONS.forEach(x => { const el = $("tab" + x.id); if (el) el.style.display = (x.id === id ? "block" : "none"); });
+  [...$("nav").children].forEach(b => b.classList.toggle("on", b.dataset.t === id));
+  const sec = SECTIONS.find(x => x.id === id);
+  $("sectionTitle").innerHTML = `<span class="tt">${sec.icon} ${sec.title}</span><span class="ss">${sec.sub}</span>`;
+  if (id === "Inbox") { ibBusy = false; loadInbox(); }
+  if (id === "Proactive") loadProactiveList();
+  if (id === "Browse") loadBrowse();
 }
+
+// ---------- עוזר התשובות ----------
+$("scope").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  scope = b.dataset.v;
+  [...e.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+});
+$("go").onclick = () => run(true);
+
+function run(fresh) {
+  const msg = fresh ? $("msg").value.trim() : lastMsg;
+  if (!msg) return;
+  if (fresh) { context = scope !== "all" ? { customerType: scope } : {}; lastMsg = msg; }
+  $("result").innerHTML = `<div class="spin">חושב…</div>`;
+  api("/api/assist", { message: msg, scope, context }).then(renderAssist)
+    .catch(() => $("result").innerHTML = `<div class="panel"><span class="badge warn">שגיאה</span></div>`);
+}
+
+function renderAssist(res) {
+  const box = $("result");
+  if (res.error) { box.innerHTML = `<div class="panel"><span class="badge warn">שגיאה: ${esc(res.error)}</span></div>`; return; }
+
+  if (res.mode === "ask") {
+    box.innerHTML = `<div class="panel"><div class="lbl">כדי לדייק, כמה דברים קצרים:</div>
+      ${res.questions.map(q => `<div style="margin-top:12px"><div style="font-size:14px;margin-bottom:4px">${esc(q.q)}</div>
+        ${q.options.map(o => `<button class="qbtn" data-k="${esc(q.key)}" data-v="${esc(o)}">${esc(o)}</button>`).join("")}</div>`).join("")}
+    </div>`;
+    box.querySelectorAll(".qbtn").forEach(b => b.onclick = () => { context[b.dataset.k] = b.dataset.v; run(false); });
+    return;
+  }
+
+  // הודעה שאינה נוגעת לשירות הלקוחות
+  if (res.mode === "offtopic") {
+    box.innerHTML = `<div class="panel">
+      <span class="badge none">לא נושא לשירות הלקוחות</span>
+      <div class="teamnote" style="margin-top:12px"><b>הנחיה לצוות · לא נשלחת ללקוחה</b>${esc(res.reason || "")}
+
+המערכת מיועדת לפניות שירות לקוחות בלבד. אפשר לענות ידנית, ואין צורך להעביר את זה דרך המערכת.</div>
+    </div>`;
+    return;
+  }
+
+  // מקרה שדורש התייעצות מקצועית
+  if (res.mode === "refer") {
+    box.innerHTML = `<div class="panel">
+      <span class="badge warn">דורש התייעצות מקצועית</span>
+      <div class="teamnote" style="margin-top:12px"><b>הנחיה לצוות · לא נשלחת ללקוחה</b>${esc(res.reason || "")}
+      
+אין לענות מהמערכת. יש להעביר את הפנייה לענת ולחזור ללקוחה רק אחרי שקיבלת ממנה מענה.</div>
+      <div class="lbl" style="margin-top:14px">אם רוצים לעדכן את הלקוחה בינתיים, אפשר להעתיק:</div>
+      <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px" id="referText">${esc(personalize("תודה ששיתפת בפירוט. מכיוון שמדובר במצב אישי שדורש התייחסות מקצועית, אעביר את הפנייה לענת ואחזור אלייך עם מענה.", $("cname").value, me.name))}</div>
+      <div class="acts">
+        <button class="btn" id="referCopy">העתקת הודעת הביניים</button>
+      </div></div>`;
+    $("referCopy").onclick = () => copy($("referText").textContent, "הועתק");
+    return;
+  }
+
+  if (res.mode === "answer") {
+    const body = personalize(res.text, $("cname").value, me.name, scope);
+    box.innerHTML = `<div class="panel">
+      <span class="badge ok">תשובה מאושרת</span>
+      <div class="lbl" style="margin-top:12px">השאלה במאגר</div>
+      <div style="font-size:15px;font-weight:500">${esc(res.matchedQuestion || lastMsg)}</div>
+      ${res.near ? `<div class="hint">נמצאה בהתאמה קרובה. כדאי לוודא שהתשובה מתאימה.</div>` : ""}
+      ${res.general ? `<div style="background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:11px 13px;margin-top:12px;font-size:14px;line-height:1.7">${esc(res.generalReason || "מוצג נוסח כללי מאושר.")}<br>אם צריך תשובה ספציפית יותר, אפשר לשלוח השגה.</div>` : ""}
+      ${res.justApproved ? `<div style="background:var(--ok-soft);color:var(--ok);border-radius:12px;padding:11px 13px;margin-top:14px;font-size:14px;line-height:1.7">התשובה אושרה. כדאי לקרוא אותה לפני השליחה, כי ייתכן שהנוסח שונה ממה שנשלח לאישור.<br>אם משהו לא מדויק, אפשר לשלוח השגה. אם הכול בסדר, אפשר להעתיק ולשלוח ללקוחה.</div>` : ""}
+      <div class="lbl" style="margin-top:14px">התשובה המאושרת · מוכנה לשליחה</div>
+      ${res.note ? `<div class="teamnote"><b>הערה לצוות · לא נשלחת ללקוחה</b>${esc(res.note)}</div>` : ""}
+      <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px">${esc(body)}</div>
+      <div class="acts">
+        <button class="btn" id="copy">העתקה ושליחה ללקוחה</button>
+        ${me.role === "מנהל" ? `<button class="btn soft" id="quickEdit">עריכה ושמירה</button>` : ""}
+        <button class="btn soft" id="obj">יש לי השגה</button>
+        <span class="meta">· ${esc(res.category || "")}</span>
+      </div><div id="objArea"></div></div>`;
+    $("copy").onclick = () => copy(body);
+
+    // עריכה מהירה ושמירה ישירה למאגר, למנהל בלבד
+    if ($("quickEdit")) $("quickEdit").onclick = () => {
+      const a = $("objArea");
+      if (a.innerHTML) { a.innerHTML = ""; return; }
+      a.innerHTML = `
+        <label class="lbl" style="margin-top:12px">התשובה · עריכה ישירה במאגר</label>
+        <textarea id="qeBody" style="min-height:170px">${esc(res.text || "")}</textarea>
+        <label class="lbl" style="margin-top:10px">סוג רשומה</label>
+    <div class="chips ekind">${["מענה", "הודעה יזומה"].map(o =>
+      `<button class="chip ${(rec.kind || "מענה") === o ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
+    <label class="lbl" style="margin-top:10px">מתי שולחים (רק להודעה יזומה)</label>
+    <textarea class="etrig grow">${esc(rec.trigger || "")}</textarea>
+    <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות</label>
+        <textarea id="qeNote" class="grow">${esc(res.note || "")}</textarea>
+        <div class="acts" style="margin-top:10px">
+          <button class="btn" id="qeSave">שמירה למאגר</button>
+        </div>`;
+      growAll(a);
+      $("qeSave").onclick = async () => {
+        const r = await api("/api/records", {
+          action: "update", id: res.id,
+          answer: $("qeBody").value.trim(),
+          note: $("qeNote").value.trim(),
+          status: "מאושר",
+        });
+        if (r.error) return toast("שגיאה: " + r.error);
+        BROWSE = [];
+        toast("נשמר במאגר · " + res.id);
+        renderAssist({ ...res, text: $("qeBody").value.trim(), note: $("qeNote").value.trim() });
+      };
+    };
+
+    $("obj").onclick = () => {
+      const a = $("objArea"); if (a.innerHTML) { a.innerHTML = ""; return; }
+      a.innerHTML = `
+        <label class="lbl" style="margin-top:12px">מה לא מדויק</label>
+        <textarea id="objNote" placeholder="בקצרה, מה הבעיה בתשובה הנוכחית…"></textarea>
+        <label class="lbl" style="margin-top:10px">הצעת נוסח מתוקן (לא חובה)</label>
+        <textarea id="objDraft" style="min-height:120px">${esc(res.text || "")}</textarea>
+        <div class="hint">אפשר לערוך ישירות את הנוסח כאן. רון יראה השוואה בין הקיים למוצע.</div>
+        <div class="acts" style="margin-top:10px"><button class="btn ghost" id="objSend">שליחה לאישור</button></div>`;
+      $("objSend").onclick = () => {
+        const proposed = $("objDraft").value.trim();
+        submit({
+          kind: "objection", refId: res.id,
+          note: $("objNote").value.trim(),
+          draft: proposed && proposed !== (res.text || "").trim() ? proposed : "",
+        });
+      };
+    };
+    return;
+  }
+
+  const f = res.fields || {};
+  box.innerHTML = `<div class="panel">
+    <span class="badge warn">הצעת ניסוח · לאישור</span>
+    <label class="lbl" style="margin-top:12px">השאלה המרכזית · קצרה, כדי שתימצא בפעם הבאה</label>
+    <input type="text" id="q2" value="${esc(res.question || "")}"/>
+    <label class="lbl" style="margin-top:12px">ניסוחים חלופיים (מופרדים בפסיק)</label>
+    <input type="text" id="alt2" value="${esc((res.altPhrasings || []).join(", "))}"/>
+    <label class="lbl" style="margin-top:12px">התשובה · אפשר לערוך</label>
+    <textarea id="draft">${esc(res.draft || "")}</textarea>
+    <label class="lbl" style="margin-top:12px">קטגוריה</label>
+    <input type="text" id="cat" value="${esc(f.category || "")}"/>
+    <label class="lbl" style="margin-top:12px">סוג לקוחה</label>
+    <div class="chips" id="ct">
+      ${CUSTOMER_TYPES.map(o =>
+        `<button class="chip ${(f.customerTypes || []).includes(o) ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}
+    </div>
+    <label class="lbl" style="margin-top:12px">הערה תפעולית לצוות (לא חובה)</label>
+    <textarea id="dNote" class="grow"></textarea>
+    <div class="acts" style="margin-top:16px">
+      <button class="btn" id="send">${me.role === "מנהל" ? "שמירה למאגר" : "שליחה לאישור"}</button>
+    </div></div>`;
+  growAll($("result"));
+  $("ct").addEventListener("click", e => { const b = e.target.closest("button"); if (b) b.classList.toggle("on"); });
+  $("send").onclick = () => submit({
+    kind: me.role === "מנהל" ? "direct" : "new",
+    note: ($("dNote")?.value || "").trim(),
+    question: ($("q2").value.trim() || lastMsg).slice(0, 120),
+    altPhrasings: $("alt2").value.split(",").map(x => x.trim()).filter(Boolean),
+    draft: $("draft").value.trim(),
+    fields: { category: $("cat").value.trim(),
+      customerTypes: [...$("ct").querySelectorAll(".on")].map(x => x.dataset.v), health: false },
+  });
+}
+
+function submit(payload) {
+  const direct = payload.kind === "direct";
+  api("/api/submit", payload).then(r => {
+    if (r && r.error) return toast("שגיאה: " + r.error);
+    BROWSE = [];
+    toast(direct ? "נשמר במאגר" + (r.id ? " · " + r.id : "") : "נשלח לאישור");
+    $("result").innerHTML = `<div class="panel"><span class="badge ok">${direct ? "נשמר במאגר" : "נשלח לאישור"}</span>
+      <div class="answer" style="color:var(--muted)">${direct
+        ? "התשובה מאושרת וזמינה מיד בחיפוש."
+        : "נעדכן כאן כשזה יאושר."}</div></div>`;
+  }).catch(() => toast("שגיאה בשליחה"));
+}
+
+// ---------- אישורים ----------
+
+// ---------- ניהול משתמשים ----------
+async function loadUsers() {
+  const r = await api("/api/users", { action: "list" });
+  const users = r.users || [];
+  $("usersList").innerHTML = users.map(u => `<div class="panel" style="padding:13px 15px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div>
+        <div style="font-weight:600">${esc(u.name)} <span class="meta">· ${esc(u.role)}</span></div>
+        <div class="meta">${esc(u.email)}</div>
+        <div class="meta">קוד: <b>${esc(u.code)}</b></div>
+      </div>
+      <div class="acts">
+        <button class="btn soft" data-a="setCode" data-r="${u.row}">שינוי קוד</button>
+        <button class="btn soft" data-a="resetCode" data-r="${u.row}">איפוס קוד</button>
+        <button class="btn soft" data-a="toggle" data-r="${u.row}" data-v="${u.active ? "0" : "1"}">${u.active ? "חסימה" : "שחרור"}</button>
+      </div>
+    </div>${u.active ? "" : `<div class="meta" style="color:var(--warn);margin-top:6px">חסום</div>`}</div>`).join("");
+  $("usersList").onclick = async e => {
+    const b = e.target.closest("button[data-a]"); if (!b) return;
+    const row = Number(b.dataset.r), a = b.dataset.a;
+    if (a === "setCode") {
+      const code = prompt("קוד חדש:"); if (!code) return;
+      await api("/api/users", { action: "setCode", row, code }); toast("הקוד עודכן");
+    } else if (a === "resetCode") {
+      const r2 = await api("/api/users", { action: "resetCode", row }); toast("קוד חדש: " + r2.code);
+    } else {
+      await api("/api/users", { action: "toggle", row, active: b.dataset.v === "1" }); toast("עודכן");
+    }
+    loadUsers();
+  };
+}
+$("uAdd").onclick = async () => {
+  const name = $("uName").value.trim(), email = $("uEmail").value.trim();
+  if (!name || !email) return toast("נא למלא שם ומייל");
+  const r = await api("/api/users", { action: "add", name, email, code: $("uCode").value.trim(), role: $("uRole").value });
+  toast("נוסף. קוד: " + r.code);
+  $("uName").value = $("uEmail").value = $("uCode").value = "";
+  loadUsers();
+};
+
+
+// ---------- השוואת נוסחים: מה נמחק ומה נוסף ----------
+/** מפרק לטוקנים של מילים ורווחים, כדי לשמור על מבנה הטקסט */
+function tokens(t) {
+  return (t || "").split(/(\s+)/).filter(x => x !== "");
+}
+
+/** השוואה ברמת המילה, מבוססת רצף משותף ארוך ביותר */
+function wordDiff(oldText, newText) {
+  const a = tokens(oldText), b = tokens(newText);
+  const n = a.length, m = b.length;
+  // טבלת אורכים של רצף משותף
+  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+
+  const out = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: "same", v: a[i] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: "del", v: a[i] }); i++; }
+    else { out.push({ t: "ins", v: b[j] }); j++; }
+  }
+  while (i < n) out.push({ t: "del", v: a[i++] });
+  while (j < m) out.push({ t: "ins", v: b[j++] });
+  return out;
+}
+
+/** מקבץ את ההשוואה ליחידות: קטע זהה, או שינוי (הוסר מול נוסף) */
+function buildChunks(oldText, newText) {
+  const parts = wordDiff(oldText, newText);
+  const chunks = [];
+  let dels = [], ins = [];
+  const flush = () => {
+    if (dels.length || ins.length) {
+      chunks.push({ type: "change", del: dels.join(""), ins: ins.join("") });
+      dels = []; ins = [];
+    }
+  };
+  for (const p of parts) {
+    if (p.t === "same") { flush(); 
+      if (chunks.length && chunks[chunks.length - 1].type === "same") chunks[chunks.length - 1].text += p.v;
+      else chunks.push({ type: "same", text: p.v });
+    }
+    else if (p.t === "del") dels.push(p.v);
+    else ins.push(p.v);
+  }
+  flush();
+  return chunks;
+}
+
+// ---------- בדיקת השגה: הקיים מול המוצע ----------
+function renderObjection(rec, rawText, from, target) {
+  const OUT = target || "result";
+  // פענוח טקסט ההתראה: "טלי מעירה על MP-XXX: <הערה>" ואחריו אולי "הצעה: <נוסח>"
+  const idx = rawText.indexOf("הצעה:");
+  const head = idx >= 0 ? rawText.slice(0, idx) : rawText;
+  const proposed = idx >= 0 ? rawText.slice(idx + 5).trim() : "";
+  const note = (head.split(":").slice(1).join(":") || head).trim();
+
+  const header = `
+    <span class="badge warn">השגה לבדיקה${from ? " · מ" + esc(from) : ""}</span>
+    <div class="lbl" style="margin-top:12px">השאלה המקורית במאגר</div>
+    <div style="font-size:15.5px;font-weight:600">${esc(rec.question || "")}</div>
+    <div class="meta" style="margin-top:5px">${esc(rec.id)} · ${esc(rec.category || "ללא קטגוריה")} · ${esc(rec.customerType || "כל הסוגים")}</div>
+    ${rec.alt ? `<div class="meta" style="margin-top:5px">ניסוחים חלופיים: ${esc(rec.alt.split(";").map(x => x.trim()).filter(Boolean).join(" · "))}</div>` : ""}
+    <div class="lbl" style="margin-top:14px">מה שנכתב בהשגה</div>
+    <div style="background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:11px 13px;font-size:14.5px;white-space:pre-wrap">${esc(note || "בלי הערה")}</div>`;
+
+  const replyRow = `
+    <label class="lbl" style="margin-top:14px">הודעה חוזרת${from ? " ל" + esc(from) : ""} (לא חובה)</label>
+    <input type="text" id="objReply" placeholder="מילה קצרה שתצורף לעדכון"/>`;
+
+  // ---- אין הצעת נוסח: עריכה חופשית ----
+  if (!proposed) {
+    $(OUT).innerHTML = `<div class="panel">${header}
+      <div class="lbl" style="margin-top:16px">הנוסח הקיים · אפשר לתקן</div>
+      <textarea id="objNew" style="min-height:160px">${esc(rec.text || "")}</textarea>
+      ${replyRow}
+      <div class="acts" style="margin-top:12px">
+        <button class="btn" id="objApprove">שמירת הנוסח</button>
+        <button class="btn soft" id="objKeep">להשאיר כמו שהוא</button>
+      </div></div>`;
+    wireObjectionButtons(rec, from, () => $("objNew").value.trim(), OUT);
+    return;
+  }
+
+  // ---- יש הצעה: מעקב שינויים ----
+  const chunks = buildChunks(rec.text || "", proposed);
+  const state = chunks.map(c => c.type === "change" ? "accepted" : null); // ברירת מחדל: מקבלים
+
+  const finalText = () => chunks.map((c, i) => {
+    if (c.type === "same") return c.text;
+    return state[i] === "accepted" ? c.ins : c.del;
+  }).join("");
+
+  const changeCount = chunks.filter(c => c.type === "change").length;
+
+  function draw() {
+    const accepted = state.filter(x => x === "accepted").length;
+    $("diffArea").innerHTML = chunks.map((c, i) => {
+      if (c.type === "same") return esc(c.text);
+      return `<span class="chunk ${state[i]}" data-i="${i}">${
+        c.del.trim() ? `<span class="del">${esc(c.del.trim())}</span>` : ""}${
+        c.ins.trim() ? `<span class="ins">${esc(c.ins.trim())}</span>` : ""}<span class="btns">
+          <button class="yes ${state[i] === "accepted" ? "on" : ""}" data-s="accepted" title="לקבל">✓</button>
+          <button class="no ${state[i] === "rejected" ? "on" : ""}" data-s="rejected" title="לדחות">✕</button>
+        </span></span> `;
+    }).join("");
+    $("diffCount").textContent = `${changeCount} שינויים · ${accepted} התקבלו, ${changeCount - accepted} נדחו`;
+    $("finalPreview").textContent = finalText();
+  }
+
+  $(OUT).innerHTML = `<div class="panel">${header}
+    <div class="lbl" style="margin-top:16px" id="diffCount"></div>
+    <div class="diffbox" id="diffArea"></div>
+    <div class="difflegend">
+      <span><i class="dot" style="background:#E4F1E8;border:1px solid #2F6B48"></i> הצעה של ${esc(from || "הצוות")}</span>
+      <span><i class="dot" style="background:#F7E2E4;border:1px solid #9B3B47"></i> הנוסח הקיים</span>
+    </div>
+    <div class="acts" style="margin-top:10px">
+      <button class="btn soft" id="accAll">לקבל הכל</button>
+      <button class="btn soft" id="rejAll">לדחות הכל</button>
+    </div>
+    <div class="lbl" style="margin-top:16px">הנוסח הסופי שיישמר</div>
+    <div class="finalbox" id="finalPreview"></div>
+    ${replyRow}
+    <div class="acts" style="margin-top:12px">
+      <button class="btn" id="objApprove">שמירת הנוסח הסופי</button>
+      <button class="btn soft" id="objKeep">ביטול · להשאיר כמו שהוא</button>
+    </div></div>`;
+
+  draw();
+
+  $("diffArea").addEventListener("click", e => {
+    const btn = e.target.closest("button[data-s]"); if (!btn) return;
+    const i = Number(btn.closest(".chunk").dataset.i);
+    state[i] = btn.dataset.s;
+    draw();
+  });
+  $("accAll").onclick = () => { chunks.forEach((c, i) => { if (c.type === "change") state[i] = "accepted"; }); draw(); };
+  $("rejAll").onclick = () => { chunks.forEach((c, i) => { if (c.type === "change") state[i] = "rejected"; }); draw(); };
+
+  wireObjectionButtons(rec, from, finalText, OUT);
+}
+
+/** מחבר את כפתורי השמירה והביטול, כולל עדכון חזרה למגישה */
+function wireObjectionButtons(rec, from, getText, OUT) {
+  const done = () => {
+    if (OUT === "ibWork") backToInbox();
+    else renderAssist({ mode: "answer", id: rec.id, text: rec.text, category: rec.category, matchedQuestion: rec.question });
+  };
+  $("objApprove").onclick = async () => {
+    const text = (getText() || "").trim();
+    const r = await api("/api/records", {
+      action: "update", id: rec.id, answer: text,
+      notify: from || "", decision: "updated", reply: ($("objReply")?.value || "").trim(),
+    });
+    if (r.error) return toast("שגיאה: " + r.error);
+    BROWSE = [];
+    clearNotifsFor(rec.id);
+    toast(from ? `הנוסח עודכן · ${from} קיבלה עדכון` : "הנוסח עודכן במאגר");
+    if (OUT === "ibWork") backToInbox();
+    else renderAssist({ mode: "answer", id: rec.id, text, category: rec.category, matchedQuestion: rec.question });
+  };
+  $("objKeep").onclick = async () => {
+    const r = await api("/api/records", {
+      action: "update", id: rec.id,
+      notify: from || "", decision: "kept", reply: ($("objReply")?.value || "").trim(),
+    });
+    if (r.error) return toast("שגיאה: " + r.error);
+    clearNotifsFor(rec.id);
+    toast(from ? `${from} קיבלה עדכון שהנוסח נשאר` : "נשאר ללא שינוי");
+    done();
+  };
+}
+
+
+// ---------- לטיפולי: כל מה שדורש פעולה ----------
+let INBOX = [], ibDrafts = false, ibBusy = false;
+
+async function loadInbox(silent) {
+  if (ibBusy) return;                       // באמצע טיפול, לא מרעננים
+  $("ibWork").innerHTML = "";
+  $("ibList").style.display = "block";
+  if (!silent) $("ibList").innerHTML = `<div class="spin">טוען…</div>`;
+
+  const statuses = ibDrafts
+    ? ["ממתין לאישור", "הוחזר לטיפול", "טיוטה", "ממתין לניסוח"]
+    : ["ממתין לאישור", "הוחזר לטיפול"];
+  const r = await api("/api/approve", { action: "list", statuses });
+  const pending = (r.pending || []).map(x => ({ kind: "approve", ...x }));
+  const objections = NOTIFS
+    .filter(n => n.type === "השגה" && n.ref)
+    .map(n => ({ kind: "objection", id: n.ref, note: n.text, row: n.row, from: n.from || (n.text.match(/^(\S+)\s+מעיר/) || [])[1] || "" }));
+
+  INBOX = [...objections, ...pending];
+  const badge = $("qApprove");
+  const count = objections.length + pending.filter(x => x.status === "ממתין לאישור" || !x.status).length;
+  if (badge) { badge.textContent = count; badge.style.display = count ? "inline" : "none"; }
+  $("ibInfo").textContent = `${INBOX.length} פריטים בתור`;
+  drawInbox();
+}
+
+function drawInbox() {
+  if (!INBOX.length) { $("ibList").innerHTML = `<div class="empty">אין כרגע מה לטפל 🌷</div>`; return; }
+  $("ibList").innerHTML = INBOX.map((x, i) => `<div class="panel" style="padding:13px 15px">
+    <div class="acts" style="justify-content:space-between">
+      <div style="min-width:0">
+        <div style="font-size:15px;font-weight:600">${esc(x.kind === "objection" ? "השגה על " + x.id : (x.question || x.id))}</div>
+        <div class="meta" style="margin-top:5px">${x.kind === "objection"
+          ? `מ${esc(x.from || "הצוות")} · דורש הכרעה`
+          : `${esc(x.status || "ממתין לאישור")} · ${esc(x.category || "ללא קטגוריה")} · הכינה: ${esc(x.source || "")}`}</div>
+      </div>
+      <button class="btn" data-i="${i}">טיפול</button>
+    </div></div>`).join("");
+}
+
+$("ibList").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-i]"); if (!b) return;
+  const item = INBOX[Number(b.dataset.i)];
+  ibBusy = true;
+  $("ibList").style.display = "none";
+  $("ibWork").innerHTML = `<div class="spin">טוען…</div>`;
+
+  if (item.kind === "objection") {
+    const rec = await api("/api/record", { id: item.id });
+    if (rec.error) { $("ibWork").innerHTML = `<div class="panel"><span class="badge warn">${esc(rec.error)}</span></div>`; return; }
+    renderObjection(rec, item.note || "", item.from || "", "ibWork");
+    if (item.row) markNotifsRead([item.row]);
+  } else {
+    renderApproval(item);
+  }
+  prependInboxBack();
+});
+
+function prependInboxBack() {
+  const bar = document.createElement("div");
+  bar.className = "acts"; bar.style.margin = "0 0 12px";
+  bar.innerHTML = `<button class="btn soft" id="ibBack">→ חזרה לרשימה</button>`;
+  $("ibWork").prepend(bar);
+  $("ibBack").onclick = backToInbox;
+}
+
+function backToInbox() {
+  ibBusy = false;
+  $("ibWork").innerHTML = "";
+  $("ibList").style.display = "block";
+  loadInbox();
+}
+
+/** כרטיס אישור בודד בתוך לטיפולי */
+function renderApproval(it) {
+  $("ibWork").innerHTML = `<div class="panel">
+    <div class="acts" style="margin-bottom:8px">
+      <span class="badge warn">${esc(it.status || "ממתין לאישור")}</span>
+      <span class="meta">· ${esc(it.id)} · ${esc(it.category || "")} · ${esc(it.customerType || "")} · הכינה: ${esc(it.source || "")}</span>
+    </div>
+    <label class="lbl">השאלה המרכזית · קצרה, כדי שתימצא בפעם הבאה</label>
+    <textarea id="fq" class="grow">${esc(it.question || "")}</textarea>
+    <label class="lbl" style="margin-top:10px">ניסוחים חלופיים (מופרדים בפסיק)</label>
+    <textarea id="fa" class="grow">${esc((it.alt || "").split(";").map(x => x.trim()).filter(Boolean).join(", "))}</textarea>
+    <label class="lbl" style="margin-top:10px">התשובה · אפשר לערוך</label>
+    <textarea id="ft" style="min-height:170px">${esc(it.text || "")}</textarea>
+    <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות (לא נשלחת ללקוחה)</label>
+    <textarea id="fn" class="grow">${esc(it.note || "")}</textarea>
+    <div class="acts" style="margin-top:14px">
+      <button class="btn" id="ibOk">אישור · יעלה לאוויר</button>
+      <button class="btn soft" id="ibRet">החזרה ל${esc(it.source || "טלי")}</button>
+    </div></div>`;
+
+  growAll($("ibWork"));
+  $("ibOk").onclick = async () => {
+    const r = await api("/api/approve", {
+      action: "approve", id: it.id, to: it.source || "טלי",
+      finalText: $("ft").value.trim(),
+      question: $("fq").value.trim(),
+      altPhrasings: $("fa").value.split(",").map(x => x.trim()).filter(Boolean).join("; "),
+      note: $("fn").value.trim(),
+    });
+    if (r.error) return toast("שגיאה: " + r.error);
+    clearNotifsFor(it.id); BROWSE = [];
+    toast("אושר ועלה לאוויר"); backToInbox();
+  };
+  $("ibRet").onclick = async () => {
+    const note = prompt("הערה (לא חובה):") || "";
+    const r = await api("/api/approve", { action: "return", id: it.id, to: it.source || "טלי", note });
+    if (r.error) return toast("שגיאה: " + r.error);
+    clearNotifsFor(it.id);
+    toast("הוחזר"); backToInbox();
+  };
+}
+
+if ($("ibMode")) $("ibMode").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+  ibDrafts = !!b.dataset.v;
+  loadInbox();
+});
+
+
+// ---------- הודעות יזומות ----------
+if ($("pGo")) {
+  $("pGo").onclick = runProactive;
+  $("pText").addEventListener("keydown", e => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runProactive();
+  });
+}
+
+async function runProactive() {
+  const text = $("pText").value.trim();
+  if (!text) return;
+  $("pResult").innerHTML = `<div class="spin">מחפש…</div>`;
+  const r = await api("/api/proactive", { text });
+  if (r.error) { $("pResult").innerHTML = `<div class="panel"><span class="badge warn">${esc(r.error)}</span></div>`; return; }
+
+  if (r.mode === "found") {
+    $("pResult").innerHTML = (r.items || []).map((it, i) => {
+      const body = personalize(it.text, $("pName").value, me.name);
+      return `<div class="panel" data-pid="${esc(it.id)}">
+        <div class="acts" style="justify-content:space-between">
+          <span class="badge ok">${i === 0 && r.exact ? "התאמה מדויקת" : "הודעה מאושרת"}</span>
+          <span class="meta">${esc(it.id)}${it.category ? " · " + esc(it.category) : ""}</span>
+        </div>
+        ${it.trigger ? `<div class="lbl" style="margin-top:10px">מתי שולחים</div><div style="font-size:14.5px;font-weight:600">${esc(it.trigger)}</div>` : ""}
+        ${it.note ? `<div class="teamnote"><b>הערה לצוות · לא נשלחת ללקוחה</b>${esc(it.note)}</div>` : ""}
+        <div class="lbl" style="margin-top:12px">ההודעה · מוכנה לשליחה</div>
+        <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px">${esc(body)}</div>
+        <div class="acts">
+          <button class="btn" data-pa="copy">העתקה ושליחה ללקוחה</button>
+          ${me.role === "מנהל" ? `<button class="btn soft" data-pa="edit">עריכה ושמירה</button>` : ""}
+        </div>
+        <div class="pEdit"></div>
+      </div>`;
+    }).join("");
+    return;
+  }
+
+  // אין התאמה: הצעת ניסוח
+  const admin = me.role === "מנהל";
+  $("pResult").innerHTML = `<div class="panel">
+    <span class="badge warn">אין הודעה מתאימה במאגר · הצעת ניסוח</span>
+    ${(r.suggestions || []).length ? `<div class="hint">אם התכוונת לאחת מאלה, אפשר לחפש שוב במילים אחרות: ${
+      r.suggestions.map(sg => esc(sg.trigger || sg.title)).join(" · ")}</div>` : ""}
+    <label class="lbl" style="margin-top:12px">שם קצר להודעה</label>
+    <input type="text" id="pQ" value="${esc(r.question || "")}"/>
+    <label class="lbl" style="margin-top:10px">מתי שולחים אותה</label>
+    <input type="text" id="pTrig" value="${esc(r.trigger || "")}"/>
+    <label class="lbl" style="margin-top:10px">ההודעה · אפשר לערוך</label>
+    <textarea id="pDraft" style="min-height:170px">${esc(r.draft || "")}</textarea>
+    <label class="lbl" style="margin-top:10px">קטגוריה</label>
+    <input type="text" id="pCat" value="${esc(r.category || "")}"/>
+    <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות (לא חובה)</label>
+    <textarea id="pNote" class="grow"></textarea>
+    <div class="acts" style="margin-top:14px">
+      <button class="btn" id="pSend">${admin ? "שמירה למאגר" : "שליחה לאישור"}</button>
+    </div></div>`;
+  growAll($("pResult"));
+
+  $("pSend").onclick = async () => {
+    const payload = {
+      kind: admin ? "direct" : "new",
+      question: $("pQ").value.trim() || $("pText").value.trim(),
+      draft: $("pDraft").value.trim(),
+      note: $("pNote").value.trim(),
+      fields: {
+        category: $("pCat").value.trim(),
+        customerTypes: [],
+        kind: "הודעה יזומה",
+        trigger: $("pTrig").value.trim(),
+      },
+    };
+    const res = await api("/api/submit", payload);
+    if (res.error) return toast("שגיאה: " + res.error);
+    toast(admin ? "נשמר במאגר" + (res.id ? " · " + res.id : "") : "נשלח לאישור");
+    if (admin) loadProactiveList(true);
+    $("pResult").innerHTML = `<div class="panel"><span class="badge ok">${admin ? "נשמר במאגר" : "נשלח לאישור"}</span>
+      <div class="answer" style="color:var(--muted)">${admin
+        ? "ההודעה זמינה מעכשיו כשמחפשים את המצב הזה."
+        : "נעדכן כאן כשזה יאושר."}</div></div>`;
+  };
+}
+
+// העתקה ועריכה בכרטיסי ההודעות היזומות
+if ($("pResult")) $("pResult").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-pa]"); if (!btn) return;
+  const card = btn.closest(".panel"), id = card.dataset.pid;
+  const bodyEl = card.querySelector(".answer");
+
+  if (btn.dataset.pa === "copy") { copy(bodyEl.textContent, "ההודעה הועתקה"); return; }
+
+  const area = card.querySelector(".pEdit");
+  if (area.innerHTML) { area.innerHTML = ""; return; }
+  area.innerHTML = `
+    <label class="lbl" style="margin-top:12px">ההודעה · עריכה ישירה במאגר</label>
+    <textarea class="peBody" style="min-height:160px">${esc(bodyEl.textContent.replace(/^היי[^\n]*\n\n/, "").replace(/\n\n[^\n]*, צוות MyPrime$/, ""))}</textarea>
+    <div class="acts" style="margin-top:10px"><button class="btn peSave">שמירה למאגר</button></div>`;
+  area.querySelector(".peSave").onclick = async () => {
+    const r = await api("/api/records", {
+      action: "update", id, answer: area.querySelector(".peBody").value.trim(), status: "מאושר",
+    });
+    if (r.error) return toast("שגיאה: " + r.error);
+    BROWSE = []; toast("נשמר במאגר · " + id);
+    runProactive();
+  };
+});
+
+
+// ---------- רשימת כל ההודעות היזומות ----------
+let PROACTIVE = [], pCat = "";
+
+async function loadProactiveList(force) {
+  if (PROACTIVE.length && !force) return drawProactiveList();
+  $("pList").innerHTML = `<div class="spin">טוען…</div>`;
+  const r = await api("/api/proactive", { action: "list" });
+  if (r.error) { $("pList").innerHTML = `<div class="panel"><span class="badge warn">${esc(r.error)}</span></div>`; return; }
+  PROACTIVE = r.items || [];
+  $("pCatFilter").innerHTML = `<button class="chip on" data-v="">הכול</button>` +
+    (r.categories || []).map(c => `<button class="chip" data-v="${esc(c)}">${esc(c)}</button>`).join("");
+  drawProactiveList();
+}
+
+if ($("pCatFilter")) $("pCatFilter").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...e.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+  pCat = b.dataset.v; drawProactiveList();
+});
+if ($("pSearch")) $("pSearch").addEventListener("input", () => drawProactiveList());
+
+function drawProactiveList() {
+  const q = ($("pSearch").value || "").trim().toLowerCase();
+  const list = PROACTIVE.filter(x => {
+    if (pCat && x.category !== pCat) return false;
+    if (q && !(x.title + " " + x.trigger + " " + x.text).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  $("pCount").textContent = `${list.length} מתוך ${PROACTIVE.length}`;
+  $("pList").innerHTML = list.map(x => `<div class="panel" style="padding:14px 16px" data-plid="${esc(x.id)}">
+      <div class="acts" style="justify-content:space-between">
+        <div style="font-size:15px;font-weight:600">${esc(x.title || x.trigger || x.id)}</div>
+        <span class="meta">${esc(x.id)}</span>
+      </div>
+      ${x.trigger ? `<div class="meta" style="margin-top:5px">מתי שולחים: ${esc(x.trigger)}</div>` : ""}
+      ${x.category ? `<div class="meta" style="margin-top:3px">${esc(x.category)}</div>` : ""}
+      <div class="acts" style="margin-top:10px">
+        <button class="btn soft" data-pla="toggle">הצגת ההודעה</button>
+        <button class="btn soft" data-pla="copy">העתקה</button>
+      </div>
+      <div class="ansWrap">
+        ${x.note ? `<div class="teamnote" style="margin-top:0"><b>הערה לצוות</b>${esc(x.note)}</div>` : ""}
+        <div class="answer" style="background:var(--bg);border-radius:12px;padding:11px 13px;font-size:14.5px;margin:0">${esc(personalize(x.text, $("pName").value, me.name))}</div>
+      </div>
+    </div>`).join("") || `<div class="empty">לא נמצאו הודעות יזומות</div>`;
+}
+
+if ($("pList")) $("pList").addEventListener("click", e => {
+  const btn = e.target.closest("button[data-pla]"); if (!btn) return;
+  const card = btn.closest(".panel");
+  const item = PROACTIVE.find(x => x.id === card.dataset.plid);
+  if (!item) return;
+  if (btn.dataset.pla === "copy") {
+    copy(personalize(item.text, $("pName").value, me.name), "ההודעה הועתקה");
+    return;
+  }
+  const w = card.querySelector(".ansWrap");
+  w.classList.toggle("open");
+  btn.textContent = w.classList.contains("open") ? "הסתרת ההודעה" : "הצגת ההודעה";
+});
+
+// ---------- מאגר התשובות ----------
+let BROWSE = [], canEdit = false;
+let bCat = "", bType = "", bStatus = "", bKind = "";
+
+async function loadBrowse() {
+  if (BROWSE.length) return drawBrowse();
+  $("bList").innerHTML = `<div class="spin">טוען…</div>`;
+  const r = await api("/api/records", { action: "list" });
+  if (r.error) { $("bList").innerHTML = `<div class="panel"><span class="badge warn">${esc(r.error)}</span></div>`; return; }
+  BROWSE = r.records || []; canEdit = !!r.canEdit;
+  if (canEdit) $("bStatusWrap").style.display = "block";
+  $("bCat").innerHTML = `<button class="on" data-v="">כל הקטגוריות</button>` +
+    (r.categories || []).map(c => `<button data-v="${esc(c)}">${esc(c)}</button>`).join("");
+  drawBrowse();
+}
+
+function pickChips(wrapId, setter) {
+  const el = $(wrapId); if (!el) return;
+  el.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    [...el.children].forEach(x => x.classList.toggle("on", x === b));
+    setter(b.dataset.v); drawBrowse();
+  });
+}
+
+// --- מסנן הקטגוריה: תפריט נפתח שסגור כברירת מחדל ---
+if ($("bCatHead")) {
+  $("bCatHead").addEventListener("click", e => {
+    if (e.target.closest("#bCatClear")) return;
+    $("bCatDD").classList.toggle("open");
+  });
+  $("bCatClear").addEventListener("click", () => setCategory(""));
+  $("bCat").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    setCategory(b.dataset.v);
+  });
+  document.addEventListener("click", e => {
+    if (!e.target.closest("#bCatDD")) $("bCatDD").classList.remove("open");
+  });
+}
+
+function setCategory(v) {
+  bCat = v;
+  $("bCatLabel").textContent = v || "כל הקטגוריות";
+  $("bCatHead").classList.toggle("sel", !!v);
+  $("bCatClear").style.display = v ? "inline" : "none";
+  [...$("bCat").children].forEach(x => x.classList.toggle("on", x.dataset.v === v));
+  $("bCatDD").classList.remove("open");
+  drawBrowse();
+}
+pickChips("bKind", v => bKind = v);
+pickChips("bType", v => bType = v);
+pickChips("bStatus", v => bStatus = v);
+if ($("bSearch")) $("bSearch").addEventListener("input", () => drawBrowse());
+
+function drawBrowse() {
+  const q = ($("bSearch").value || "").trim().toLowerCase();
+  const list = BROWSE.filter(r => {
+    if (bCat && r.category !== bCat) return false;
+    if (bKind && (r.kind || "מענה") !== bKind) return false;
+    if (bStatus && r.status !== bStatus) return false;
+    if (bType) {
+      const types = r.customerType.split(";").map(x => x.trim()).filter(Boolean);
+      if (!types.includes(bType)) return false;
+    }
+    if (q && !(r.question + " " + r.alt + " " + r.answer).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const by = {};
+  BROWSE.forEach(r => { by[r.status] = (by[r.status] || 0) + 1; });
+  const summary = Object.entries(by).map(([k, v]) => `${k}: ${v}`).join(" · ");
+  $("bCount").textContent = `מוצגות ${list.length} מתוך ${BROWSE.length} · ${summary}`;
+  $("bList").innerHTML = list.map(r => `<div class="panel" style="padding:14px 16px" data-id="${esc(r.id)}">
+      <div class="acts" style="justify-content:space-between">
+        <div style="font-size:15px;font-weight:600">${esc(r.question)}</div>
+        <span style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+          ${(r.kind || "מענה") === "הודעה יזומה" ? `<span class="badge" style="background:#EFF3F8;color:#3B4A5C">📤 הודעה יזומה</span>` : ""}
+          ${r.general ? `<span class="badge warn">נוסח כללי</span>` : ""}
+          <span class="badge ${r.status === "מאושר" ? "ok" : "none"}">${esc(r.status)}</span>
+        </span>
+      </div>
+      <div class="meta" style="margin-top:6px">${esc(r.id)} · ${esc(r.category || "ללא קטגוריה")} · ${esc(r.customerType || "כל הסוגים")}${r.health ? " · בריאותי" : ""}</div>
+      ${r.trigger ? `<div class="meta" style="margin-top:4px">מתי שולחים: ${esc(r.trigger)}</div>` : ""}
+      <div class="acts" style="margin-top:10px">
+        <button class="btn soft" data-a="toggle">הצגת התשובה</button>
+        <button class="btn soft" data-a="copy">העתקה</button>
+        ${canEdit ? `<button class="btn soft" data-a="edit">עריכה</button>` : ""}
+      </div>
+      <div class="ansWrap">
+        ${r.note ? `<div class="teamnote" style="margin-top:0"><b>הערה לצוות</b>${esc(r.note)}</div>` : ""}
+        <div class="answer" style="background:var(--bg);border-radius:12px;padding:11px 13px;font-size:14.5px;margin:0">${esc(r.answer)}</div>
+      </div>
+      <div class="editArea"></div>
+    </div>`).join("") || `<div class="empty">לא נמצאו תשובות מתאימות</div>`;
+}
+
+$("bList").addEventListener("click", async e => {
+  const btn = e.target.closest("button[data-a]"); if (!btn) return;
+  const card = btn.closest(".panel"), id = card.dataset.id;
+  const rec = BROWSE.find(x => x.id === id); if (!rec) return;
+
+  if (btn.dataset.a === "toggle") {
+    const w = card.querySelector(".ansWrap");
+    w.classList.toggle("open");
+    btn.textContent = w.classList.contains("open") ? "הסתרת התשובה" : "הצגת התשובה";
+    return;
+  }
+  if (btn.dataset.a === "copy") {
+    copy(personalize(rec.answer, "", me.name), "התשובה הועתקה");
+    return;
+  }
+  const area = card.querySelector(".editArea");
+  if (area.innerHTML) { area.innerHTML = ""; return; }
+  area.innerHTML = `
+    <label class="lbl" style="margin-top:12px">השאלה המרכזית</label>
+    <textarea class="eq grow">${esc(rec.question)}</textarea>
+    <label class="lbl" style="margin-top:10px">ניסוחים חלופיים (מופרדים בפסיק)</label>
+    <textarea class="ea grow">${esc(rec.alt.split(";").map(x => x.trim()).filter(Boolean).join(", "))}</textarea>
+    <label class="lbl" style="margin-top:10px">התשובה</label>
+    <textarea class="eb" style="min-height:140px">${esc(rec.answer)}</textarea>
+    <label class="lbl" style="margin-top:10px">סוג רשומה</label>
+    <div class="chips ekind">${["מענה", "הודעה יזומה"].map(o =>
+      `<button class="chip ${(rec.kind || "מענה") === o ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
+    <label class="lbl" style="margin-top:10px">מתי שולחים (רק להודעה יזומה)</label>
+    <textarea class="etrig grow">${esc(rec.trigger || "")}</textarea>
+    <label class="lbl" style="margin-top:10px">הערה תפעולית לצוות</label>
+    <textarea class="en grow">${esc(rec.note || "")}</textarea>
+    <label class="lbl" style="margin-top:10px">קטגוריה</label>
+    <input type="text" class="ec" value="${esc(rec.category)}"/>
+    <label class="lbl" style="margin-top:10px">סוג לקוחה</label>
+    <div class="chips ect">${CUSTOMER_TYPES.map(o =>
+      `<button class="chip ${rec.customerType.includes(o) || (isUniversalType(o) && /שתיהן|כל הסוגים/.test(rec.customerType)) ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
+    <label class="lbl" style="margin-top:10px">נוסח כללי</label>
+    <div class="chips egen"><button class="chip ${rec.general ? "on" : ""}" data-v="1">כן, זה נוסח כללי</button></div>
+    <label class="lbl" style="margin-top:10px">סטטוס</label>
+    <div class="chips est">${["מאושר", "טיוטה", "לא לפרסם"].map(o =>
+      `<button class="chip ${rec.status === o ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
+    <div class="acts" style="margin-top:14px">
+      <button class="btn" data-a="save">שמירה</button>
+      ${rec.status !== "מאושר" ? `<button class="btn soft" data-a="approve">שמירה ואישור מיידי</button>` : ""}
+    </div>
+    <div class="hint">השמירה נשמרת בסטטוס שסומן למעלה.</div>`;
+  growAll(area);
+  area.querySelector(".ect").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (b) b.classList.toggle("on");
+  });
+  area.querySelector(".ekind").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    [...ev.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+  });
+  area.querySelector(".egen").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (b) b.classList.toggle("on");
+  });
+  area.querySelector(".est").addEventListener("click", ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    [...ev.currentTarget.children].forEach(x => x.classList.toggle("on", x === b));
+  });
+
+  const doSave = async (forceApprove) => {
+    const chosen = area.querySelector(".est .on")?.dataset.v || rec.status;
+    const payload = {
+      action: "update", id,
+      question: area.querySelector(".eq").value.trim(),
+      alt: area.querySelector(".ea").value.split(",").map(x => x.trim()).filter(Boolean).join("; "),
+      answer: area.querySelector(".eb").value.trim(),
+      category: area.querySelector(".ec").value.trim(),
+      customerType: [...area.querySelectorAll(".ect .on")].map(x => x.dataset.v).join("; "),
+      note: area.querySelector(".en").value.trim(),
+      kind: area.querySelector(".ekind .on")?.dataset.v || "מענה",
+      trigger: area.querySelector(".etrig").value.trim(),
+      status: forceApprove ? "מאושר" : chosen,
+      general: !!area.querySelector(".egen .on"),
+    };
+    const r = await api("/api/records", payload);
+    if (r.error) return toast("שגיאה: " + r.error);
+    Object.assign(rec, {
+      question: payload.question, alt: payload.alt, answer: payload.answer,
+      category: payload.category, customerType: payload.customerType,
+      status: payload.status, general: payload.general, note: payload.note,
+      kind: payload.kind, trigger: payload.trigger,
+    });
+    if (payload.status === "מאושר") clearNotifsFor(id);
+    toast(payload.status === "מאושר" ? "נשמר ואושר · עלה לאוויר" : `נשמר בסטטוס ${payload.status}`);
+    drawBrowse();
+  };
+  const approveBtn = area.querySelector('[data-a="approve"]');
+  if (approveBtn) approveBtn.onclick = () => doSave(true);
+  area.querySelector('[data-a="save"]').onclick = () => doSave(false);
+});
+
+// ---------- פוש: רישום המכשיר לקבלת התראות ----------
+async function setupPush() {
+  try {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    if (Notification.permission === "denied") return;
+    if (Notification.permission !== "granted") {
+      const p = await Notification.requestPermission();
+      if (p !== "granted") return;
+    }
+    const { key } = await fetch("/api/subscribe").then(r => r.json());
+    if (!key) return;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key),
+      });
+      await api("/api/subscribe", { subscription: sub.toJSON() });
+    } else if (!localStorage.getItem("myprime_push_saved")) {
+      await api("/api/subscribe", { subscription: sub.toJSON() });
+    }
+    localStorage.setItem("myprime_push_saved", "1");
+  } catch { /* פוש לא זמין במכשיר הזה */ }
+}
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const b64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+/** פתיחת תשובה ישירות מלחיצה על התראה במכשיר */
+async function openFromUrl() {
+  const ref = new URLSearchParams(location.search).get("ref");
+  if (!ref) return;
+  history.replaceState({}, "", "/");
+  const r = await api("/api/record", { id: ref });
+  if (r.error) return;
+  lastMsg = r.question || "";
+  setAssistInput(false);
+  renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category,
+    matchedQuestion: r.question, justApproved: true });
+  addBackBar("צפייה בתשובה מתוך התראה");
+}
+
+// ---------- הוספת תשובה ידנית (מנהל) ----------
+["aCt", "aKind", "aGen"].forEach(id => {
+  const el = $(id); if (!el) return;
+  el.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (id === "aKind") [...el.children].forEach(x => x.classList.toggle("on", x === b));
+    else b.classList.toggle("on");
+  });
+});
+if ($("aSave")) $("aSave").onclick = async () => {
+  const q = $("aQ").value.trim(), body = $("aBody").value.trim();
+  if (!q || !body) return toast("נא למלא שאלה ותשובה");
+  const admin = me.role === "מנהל";
+  const r = await api("/api/submit", {
+    kind: admin ? "direct" : "new", question: q, draft: body,
+    note: $("aNote").value.trim(),
+    altPhrasings: $("aAlt").value.split(",").map(x => x.trim()).filter(Boolean),
+    fields: {
+      category: $("aCat").value.trim(),
+      customerTypes: [...$("aCt").querySelectorAll(".on")].map(x => x.dataset.v),
+      kind: $("aKind").querySelector(".on")?.dataset.v || "מענה",
+      general: !!$("aGen").querySelector(".on"),
+      health: false,
+    },
+  });
+  if (r.error) return toast("שגיאה: " + r.error);
+  toast(admin ? "נוסף למאגר · " + r.id : "נשלח לאישור");
+  BROWSE = [];
+  $("aQ").value = $("aAlt").value = $("aBody").value = $("aCat").value = $("aNote").value = "";
+};
+
+// ---------- כלים והתראות ----------
+function copy(t, m) { navigator.clipboard.writeText(t).then(() => toast(m || "הועתק")); }
+let tt; function toast(m) { const e = $("toast"); e.textContent = m; e.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => e.classList.remove("show"), 2200); }
+
+$("bell").onclick = () => { const n = $("notifs"); n.style.display = n.style.display === "none" ? "block" : "none"; };
+async function poll() {
+  try {
+    const r = await fetch(`/api/notifications?to=${encodeURIComponent(me.name)}`).then(r => r.json());
+    const items = r.items || [];
+    $("bc").textContent = items.length; $("bc").style.display = items.length ? "inline" : "none";
+    NOTIFS = items;
+    $("notifs").innerHTML = items.length
+      ? `<div class="acts" style="margin:10px 0 4px"><button class="btn soft" id="readAll">סימון הכל כנקרא</button></div>` +
+        items.map(n => `<div class="notif" data-row="${n.row}"><b>${esc(n.type)}</b><div class="t">${esc(n.text)}</div>
+          <div class="acts" style="margin-top:8px">
+        ${n.ref ? `<button class="btn soft" data-ref="${esc(n.ref)}" data-type="${esc(n.type)}" data-note="${esc(n.text)}" data-from="${esc(n.from || "")}" data-row="${n.row}">${n.type === "השגה" ? "בדיקת ההשגה" : "צפייה בתשובה"}</button>` : ""}
+        <button class="btn soft" data-read="${n.row}">סימון כנקרא</button>
+      </div>
+        </div>`).join("")
+      : `<div class="empty">אין התראות</div>`;
+    if (me.role === "מנהל" && current === "Inbox" && !ibBusy) loadInbox(true);
+  } catch {}
+}
+
+/** הצגה או הסתרה של תיבת ההדבקה בעוזר. בצפייה מתוך התראה היא מיותרת. */
+function setAssistInput(visible) {
+  const panel = document.querySelector("#tabAssist > .panel");
+  if (panel) panel.style.display = visible ? "block" : "none";
+}
+
+/** סרגל חזרה שמופיע מעל תשובה שנפתחה מהתראה */
+function addBackBar(label) {
+  const bar = document.createElement("div");
+  bar.className = "acts";
+  bar.style.margin = "0 0 12px";
+  bar.innerHTML = `<button class="btn soft" id="backAssist">→ חזרה לעוזר התשובות</button>
+    <span class="meta">${esc(label)}</span>`;
+  $("result").prepend(bar);
+  $("backAssist").onclick = () => {
+    setAssistInput(true);
+    $("result").innerHTML = "";
+    $("msg").value = "";
+  };
+}
+
+/** ניקוי כל ההתראות שמפנות לרשומה מסוימת */
+function clearNotifsFor(id) {
+  const rows = NOTIFS.filter(n => n.ref === id).map(n => n.row).filter(Boolean);
+  if (rows.length) markNotifsRead(rows);
+}
+
+/** סימון התראות כנקראו והסרתן מהפעמון */
+async function markNotifsRead(rows) {
+  if (!rows.length) return;
+  await fetch("/api/notifications", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows }),
+  }).catch(() => null);
+  poll();
+}
+
+// פתיחת תשובה מתוך התראה
+$("notifs").addEventListener("click", async e => {
+  if (e.target.closest("#readAll")) {
+    await markNotifsRead(NOTIFS.map(n => n.row).filter(Boolean));
+    toast("סומנו כנקראו");
+    return;
+  }
+  const readBtn = e.target.closest("button[data-read]");
+  if (readBtn) { await markNotifsRead([Number(readBtn.dataset.read)]); return; }
+
+  const b = e.target.closest("button[data-ref]"); if (!b) return;
+  const r = await api("/api/record", { id: b.dataset.ref });
+  if (r.error) return toast(r.error);
+  $("notifs").style.display = "none";
+  if (b.dataset.row) markNotifsRead([Number(b.dataset.row)]);
+  showSection("Assist");
+  lastMsg = r.question || "";
+  if (me.role === "מנהל") { $("notifs").style.display = "none"; showSection("Inbox"); return; }
+  setAssistInput(false);
+  if (b.dataset.type === "השגה") {
+    const raw = b.dataset.note || "";
+    // אם עמודת "מאת" ריקה, מחלצים את השם מתחילת הטקסט: "טלי מעירה על ..."
+    const guess = (raw.match(/^(\S+)\s+מעיר/) || [])[1] || "";
+    renderObjection(r, raw, b.dataset.from || guess);
+    addBackBar("צפייה בהשגה מתוך התראה");
+  } else {
+    renderAssist({ mode: "answer", id: r.id, text: r.text, category: r.category,
+      matchedQuestion: r.question, justApproved: b.dataset.type === "אושר" });
+    addBackBar("צפייה בתשובה מתוך התראה");
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+// ---------- שחזור כניסה קודמת ----------
+try {
+  const saved = JSON.parse(localStorage.getItem(SKEY) || "null");
+  if (saved && saved.email && saved.code) { me = saved; start(); }
+} catch {}
