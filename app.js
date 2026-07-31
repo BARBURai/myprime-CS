@@ -8,6 +8,10 @@ import { personalize } from "./lib/wrap.js";
 
 const $ = id => document.getElementById(id);
 
+/** סוגי הלקוחה, לפי שלב במשפך. "כל הסוגים" ו"שתיהן" מתייחסים לכולן. */
+const CUSTOMER_TYPES = ["לקוחה קיימת", "לא השתתפה בוובינר", "השתתפה בוובינר", "כל הסוגים"];
+const isUniversalType = t => t === "כל הסוגים" || t === "שתיהן";
+
 /** מתאים גובה של תיבת טקסט לתוכן שלה */
 function autoGrow(el) {
   if (!el) return;
@@ -256,7 +260,7 @@ function renderAssist(res) {
     <input type="text" id="cat" value="${esc(f.category || "")}"/>
     <label class="lbl" style="margin-top:12px">סוג לקוחה</label>
     <div class="chips" id="ct">
-      ${["לקוחה קיימת", "עדיין לא לקוחה", "שתיהן"].map(o =>
+      ${CUSTOMER_TYPES.map(o =>
         `<button class="chip ${(f.customerTypes || []).includes(o) ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}
     </div>
     <label class="lbl" style="margin-top:12px">הערה תפעולית לצוות (לא חובה)</label>
@@ -932,8 +936,8 @@ $("bList").addEventListener("click", async e => {
     <label class="lbl" style="margin-top:10px">קטגוריה</label>
     <input type="text" class="ec" value="${esc(rec.category)}"/>
     <label class="lbl" style="margin-top:10px">סוג לקוחה</label>
-    <div class="chips ect">${["לקוחה קיימת", "עדיין לא לקוחה", "שתיהן"].map(o =>
-      `<button class="chip ${rec.customerType.includes(o) ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
+    <div class="chips ect">${CUSTOMER_TYPES.map(o =>
+      `<button class="chip ${rec.customerType.includes(o) || (isUniversalType(o) && /שתיהן|כל הסוגים/.test(rec.customerType)) ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
     <label class="lbl" style="margin-top:10px">נוסח כללי</label>
     <div class="chips egen"><button class="chip ${rec.general ? "on" : ""}" data-v="1">כן, זה נוסח כללי</button></div>
     <label class="lbl" style="margin-top:10px">סטטוס</label>
