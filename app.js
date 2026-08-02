@@ -188,11 +188,39 @@ function renderAssist(res) {
       <div class="answer" style="background:var(--bg);border-radius:12px;padding:12px 14px">${esc(body)}</div>
       <div class="acts">
         <button class="btn" id="copy">העתקה ושליחה ללקוחה</button>
+        <button class="btn soft" id="adapt">התאמה לפני שליחה</button>
         ${me.role === "מנהל" ? `<button class="btn soft" id="quickEdit">עריכה ושמירה</button>` : ""}
         <button class="btn soft" id="obj">יש לי השגה</button>
         <span class="meta">· ${esc(res.category || "")}</span>
       </div><div id="objArea"></div></div>`;
     $("copy").onclick = () => copy(body);
+
+    // התאמה לפני שליחה: עריכה חד-פעמית שנשמרת לסקירה ולא משנה את המאגר
+    $("adapt").onclick = () => {
+      const a = $("objArea");
+      if (a.innerHTML) { a.innerHTML = ""; return; }
+      a.innerHTML = `
+        <div class="teamnote" style="margin-top:12px"><b>התאמה לפני שליחה</b>אפשר להתאים את הפתיחה כך שתתיישב עם מה שהלקוחה כתבה. אין לשנות את תוכן התשובה. ההתאמה נשמרת לסקירה של רון ולא משנה את המאגר.</div>
+        <textarea id="adBody" style="min-height:190px">${esc(res.text || "")}</textarea>
+        <div class="acts" style="margin-top:10px">
+          <button class="btn" id="adSend">העתקה ושליחה</button>
+          <button class="btn soft" id="adCancel">ביטול</button>
+        </div>`;
+      $("adCancel").onclick = () => { a.innerHTML = ""; };
+      $("adSend").onclick = async () => {
+        const edited = $("adBody").value.trim();
+        if (!edited) return toast("התשובה ריקה");
+        copy(personalize(edited, $("cname").value, me.name, scope), "הועתק ומוכן לשליחה");
+        if (edited !== (res.text || "").trim()) {
+          const r = await api("/api/submit", {
+            kind: "adaptation", sourceId: res.id,
+            question: lastMsg, draft: edited,
+          });
+          if (!r.error) toast("הועתק · ההתאמה נשמרה לסקירה");
+        }
+        a.innerHTML = "";
+      };
+    };
 
     // עריכה מהירה ושמירה ישירה למאגר, למנהל בלבד
     if ($("quickEdit")) $("quickEdit").onclick = () => {
@@ -941,7 +969,7 @@ $("bList").addEventListener("click", async e => {
     <label class="lbl" style="margin-top:10px">נוסח כללי</label>
     <div class="chips egen"><button class="chip ${rec.general ? "on" : ""}" data-v="1">כן, זה נוסח כללי</button></div>
     <label class="lbl" style="margin-top:10px">סטטוס</label>
-    <div class="chips est">${["מאושר", "טיוטה", "לא לפרסם"].map(o =>
+    <div class="chips est">${["מאושר", "טיוטה", "התאמת תשובות", "לא לפרסם"].map(o =>
       `<button class="chip ${rec.status === o ? "on" : ""}" data-v="${o}">${o}</button>`).join("")}</div>
     <div class="acts" style="margin-top:14px">
       <button class="btn" data-a="save">שמירה</button>

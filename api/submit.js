@@ -6,7 +6,7 @@
 //   וההצעה, בלי לשנות את הרשומה החיה.
 // ============================================================
 
-import { appendRow, nextId, addNotification } from "../lib/sheets.js";
+import { appendRow, nextId, addNotification, readAll } from "../lib/sheets.js";
 import { requireUser, adminNames } from "../lib/users.js";
 import { readBody, send } from "../lib/http.js";
 
@@ -27,6 +27,27 @@ export default async function handler(req, res) {
         });
       }
       return send(res, 200, { ok: true });
+    }
+
+    // התאמה של נציגה: נשמרת לסקירה, לא מופיעה בחיפוש ולא נשלחת לאיש
+    if (b.kind === "adaptation") {
+      const { records } = await readAll();
+      const src = records.find(r => r["מזהה"] === b.sourceId) || {};
+      const id = await nextId();
+      await appendRow({
+        "מזהה": id,
+        "שאלה מרכזית": b.question || "",
+        "ניסוחים חלופיים": "",
+        "תשובה (קול ענת)": b.draft || "",
+        "קטגוריה": src["קטגוריה"] || "",
+        "סוג לקוחה": src["סוג לקוחה"] || "",
+        "מקור": by,
+        "בריאותי": src["בריאותי"] || "",
+        "סטטוס": "התאמת תשובות",
+        "סוג": "מענה",
+        "הערה לצוות": `התאמה של ${by} לרשומה ${b.sourceId || ""}`,
+      });
+      return send(res, 200, { ok: true, id });
     }
 
     // הוספה ישירה של מנהל: נכנס מיד כמאושר
